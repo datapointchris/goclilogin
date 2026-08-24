@@ -1,0 +1,47 @@
+# forge-toolchain: 17
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+
+  go:
+    runs-on: ubuntu-latest
+    steps:
+
+      - uses: actions/checkout@v7
+
+      # generated:go
+      - uses: actions/setup-go@v7
+        with:
+          # Action inputs resolve from the workspace root, not the job's
+          # working-directory, so this needs the component path.
+          go-version-file: "./go.mod"
+
+      - run: go build ./...
+
+      - run: go vet ./...
+
+      - run: go test ./...
+
+      - name: Lint
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          golangci-lint run
+
+      # Two advisories found by hand on 2026-07-26 that this would have caught:
+      # GO-2026-5932 (x/crypto/openpgp, unmaintained and unfixed) reached three
+      # repos through go-selfupdate, and GO-2026-5856 (crypto/tls) shipped
+      # because a stale `go` directive picks the toolchain that compiles the
+      # binary, so the stdlib goes stale with it.
+      - name: Vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+          govulncheck ./...
