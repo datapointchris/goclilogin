@@ -155,6 +155,11 @@ This mirrors `standards/infrastructure.md` § "There is not always a keyring, an
 the downgrade has to be visible", whose canonical source is `~/tools/ifiles/auth`
 — a different token type, the same obligation.
 
+The fallback is a Unix concern in practice. Windows uses `wincred`, which is
+always present, and it has no POSIX mode bits — `os.Chmod` there toggles only the
+read-only flag. If the fallback ever does run on Windows, the file's protection
+is whatever ACL the user's profile directory carries, not `0600`.
+
 ## Testing against it
 
 `NewTestTokenStore(cfg)` returns a store whose keyring is an in-memory map, so a

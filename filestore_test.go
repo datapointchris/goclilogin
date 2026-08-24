@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,14 @@ func TestSave_WritesTheFallbackFile0600(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat the fallback file: %v", err)
 	}
+	if runtime.GOOS == "windows" {
+		// Windows has no POSIX mode bits — os.Chmod there toggles only the
+		// read-only flag, and Stat reports 0666 whatever was asked for. The
+		// file's protection is the ACL on the user's profile directory, which
+		// is not this package's to assert. wincred also always exists, so the
+		// fallback is Unix in practice.
+		return
+	}
 	if perm := info.Mode().Perm(); perm != 0o600 {
 		t.Errorf("mode = %o, want 600", perm)
 	}
@@ -92,6 +101,9 @@ func TestSave_CreatesAMissingStateDirectory0700(t *testing.T) {
 	info, err := os.Stat(dir)
 	if err != nil {
 		t.Fatalf("stat the state directory: %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		return // no POSIX mode bits; see TestSave_WritesTheFallbackFile0600
 	}
 	if perm := info.Mode().Perm(); perm != 0o700 {
 		t.Errorf("directory mode = %o, want 700", perm)
