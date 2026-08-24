@@ -6,6 +6,8 @@ commit subjects cannot.
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-08-24
+
 ### Added
 
 The package itself. `Login` runs the OAuth 2.0 device authorization grant,

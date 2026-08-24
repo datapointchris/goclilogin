@@ -87,6 +87,9 @@ func NewTestTokenStore(service string) *TokenStore {
 	return &TokenStore{service: service, backend: newMemoryKeyring()}
 }
 
+// Save writes the token for clientID, replacing whatever was there. The id
+// token rides along in a field of its own, because oauth2.Token keeps it in an
+// Extra map that does not survive a JSON round-trip.
 func (t *TokenStore) Save(clientID string, tok *oauth2.Token) error {
 	data, err := json.Marshal(fromOAuth2(tok))
 	if err != nil {
@@ -95,6 +98,9 @@ func (t *TokenStore) Save(clientID string, tok *oauth2.Token) error {
 	return t.backend.Set(t.service, clientID, string(data))
 }
 
+// Load returns the stored token for clientID, or ErrNotLoggedIn when the
+// keychain holds nothing for it. A missing entry is a normal state rather than
+// a fault, so callers branch on it and print a login hint.
 func (t *TokenStore) Load(clientID string) (*oauth2.Token, error) {
 	raw, err := t.backend.Get(t.service, clientID)
 	if errors.Is(err, keyring.ErrNotFound) {
@@ -110,6 +116,9 @@ func (t *TokenStore) Load(clientID string) (*oauth2.Token, error) {
 	return s.toOAuth2(), nil
 }
 
+// Delete removes the stored token for clientID, returning ErrNotLoggedIn when
+// there was nothing to remove. It does not revoke the grant at the provider —
+// this machine simply forgets it.
 func (t *TokenStore) Delete(clientID string) error {
 	err := t.backend.Delete(t.service, clientID)
 	if errors.Is(err, keyring.ErrNotFound) {
