@@ -9,7 +9,7 @@ cfg := goclilogin.Config{
     ClientID:       goclilogin.ClientID("myapp"), // myapp-cli-<hostname>
     KeyringService: "myapp-cli",
 }
-store := goclilogin.NewTokenStore(cfg.KeyringService)
+store := goclilogin.NewTokenStore(cfg)
 
 // Log in, once, interactively.
 token, err := goclilogin.Login(ctx, cfg, func(p goclilogin.DevicePrompt) {
@@ -17,7 +17,9 @@ token, err := goclilogin.Login(ctx, cfg, func(p goclilogin.DevicePrompt) {
     _ = browser.OpenURL(p.BrowserURL())
 })
 if err == nil {
-    err = store.Save(cfg.ClientID, token)
+    backend, err := store.Save(cfg.ClientID, token)
+    // backend says where it went. Report a fall back to the file; a host with
+    // no keyring stores the token in plaintext and the user should know.
 }
 
 // Then, on every later invocation.
@@ -106,7 +108,10 @@ description, and naming nothing the user can do about it.
 | `ClientID` | yes | — |
 | `KeyringService` | yes | — |
 | `Scopes` | no | `openid`, `profile`, `offline_access` |
-| `LockDir` | no | `StateDir(KeyringService)` |
+| `StateDir` | no | `StateDir(KeyringService)` |
+
+`StateDir` holds the refresh lock and the fallback token file. Both are state
+this tool writes, so they live together.
 
 `ClientID(product)` spells the conventional per-machine id — `myapp` on a host
 reporting `archlinux.trusted` gives `myapp-cli-archlinux`. One client per
@@ -117,11 +122,45 @@ authorization scope is deliberately not in the default: Authelia's
 `bearer.authz`, for one, permits only `authorization_code`, `refresh_token` and
 `client_credentials` alongside it, which rules out the device grant entirely.
 
+## There is not always a keyring
+
+On Linux the keychain is the Secret Service over D-Bus, which WSL, containers and
+headless hosts do not have. `go-keyring` fails there before any request is made,
+with `exec: "dbus-launch": executable file not found in $PATH` — naming nothing
+the user can act on. Refusing to store a token would make the CLI unusable on
+exactly the machines whose only other route is a browser they do not have.
+
+So the store falls back to a mode-600 file in `StateDir`, and **`Save` returns
+which backend took it** rather than swallowing it:
+
+```go
+backend, err := store.Save(cfg.ClientID, token)
+if backend == goclilogin.BackendFile {
+    fmt.Fprintf(os.Stderr, "no OS keyring here — token saved to %s\n", store.FilePath())
+}
+```
+
+A downgrade from keychain to plaintext is reported at the moment it happens.
+`Load` prefers the keyring whenever it holds a token, so a host that gains a
+provider later moves onto it with no re-login, and it reports its backend too so
+a status command can say which one is in play. `Delete` clears both, or a file
+token outlives the logout meant to remove it.
+
+When nothing is stored anywhere *and* the keyring failed for a reason other than
+an absent entry, that reason is carried through the error. "Not logged in" and
+"your keychain is locked" need different fixes, and a bare `ErrNotLoggedIn`
+sends the user to re-authenticate against a store that was never the problem.
+
+This mirrors `standards/infrastructure.md` § "There is not always a keyring, and
+the downgrade has to be visible", whose canonical source is `~/tools/ifiles/auth`
+— a different token type, the same obligation.
+
 ## Testing against it
 
-`NewTestTokenStore(service)` returns a store backed by an in-memory map, so a
+`NewTestTokenStore(cfg)` returns a store whose keyring is an in-memory map, so a
 consumer can test its own command wiring without writing to the real keychain.
-The keychain is shared machine state and a test must not touch it.
+The keychain is shared machine state and a test must not touch it. Point
+`cfg.StateDir` at a `t.TempDir()` so the fallback file lands there too.
 
 ## Platforms
 

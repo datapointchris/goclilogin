@@ -99,7 +99,7 @@ func testConfig(t *testing.T, issuer string) Config {
 		Issuer:         issuer,
 		ClientID:       "prod-cli-testhost",
 		KeyringService: "prod-cli",
-		LockDir:        t.TempDir(),
+		StateDir:       t.TempDir(),
 	}
 }
 
@@ -108,7 +108,7 @@ func testConfig(t *testing.T, issuer string) Config {
 // lifetime has passed.
 func seedExpiredToken(t *testing.T, store *TokenStore, clientID, refreshToken string) {
 	t.Helper()
-	err := store.Save(clientID, &oauth2.Token{
+	_, err := store.Save(clientID, &oauth2.Token{
 		AccessToken:  "at-initial",
 		RefreshToken: refreshToken,
 		TokenType:    "bearer",
@@ -125,7 +125,7 @@ func seedExpiredToken(t *testing.T, store *TokenStore, clientID, refreshToken st
 func TestTokenSource_ConcurrentProcessesRefreshOnce(t *testing.T) {
 	idp := newRotatingIDP(t, "rt-initial")
 	cfg := testConfig(t, idp.server.URL)
-	store := NewTestTokenStore(cfg.KeyringService)
+	store := NewTestTokenStore(cfg)
 	seedExpiredToken(t, store, cfg.ClientID, "rt-initial")
 
 	const processes = 8
@@ -180,7 +180,7 @@ func TestTokenSource_ConcurrentProcessesRefreshOnce(t *testing.T) {
 func TestTokenSource_PersistsTheRefreshedToken(t *testing.T) {
 	idp := newRotatingIDP(t, "rt-initial")
 	cfg := testConfig(t, idp.server.URL)
-	store := NewTestTokenStore(cfg.KeyringService)
+	store := NewTestTokenStore(cfg)
 	seedExpiredToken(t, store, cfg.ClientID, "rt-initial")
 
 	source, err := TokenSource(context.Background(), cfg, store)
@@ -191,7 +191,7 @@ func TestTokenSource_PersistsTheRefreshedToken(t *testing.T) {
 		t.Fatalf("Token: %v", err)
 	}
 
-	stored, err := store.Load(cfg.ClientID)
+	stored, _, err := store.Load(cfg.ClientID)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -208,8 +208,8 @@ func TestTokenSource_PersistsTheRefreshedToken(t *testing.T) {
 func TestTokenSource_DoesNotRefreshALiveToken(t *testing.T) {
 	idp := newRotatingIDP(t, "rt-initial")
 	cfg := testConfig(t, idp.server.URL)
-	store := NewTestTokenStore(cfg.KeyringService)
-	if err := store.Save(cfg.ClientID, &oauth2.Token{
+	store := NewTestTokenStore(cfg)
+	if _, err := store.Save(cfg.ClientID, &oauth2.Token{
 		AccessToken:  "at-live",
 		RefreshToken: "rt-initial",
 		TokenType:    "bearer",
@@ -237,7 +237,7 @@ func TestTokenSource_DoesNotRefreshALiveToken(t *testing.T) {
 func TestTokenSource_NotLoggedInWhenTheStoreIsEmpty(t *testing.T) {
 	idp := newRotatingIDP(t, "rt-initial")
 	cfg := testConfig(t, idp.server.URL)
-	store := NewTestTokenStore(cfg.KeyringService)
+	store := NewTestTokenStore(cfg)
 
 	_, err := TokenSource(context.Background(), cfg, store)
 	if !errors.Is(err, ErrNotLoggedIn) {
@@ -250,7 +250,7 @@ func TestTokenSource_NotLoggedInWhenTheStoreIsEmpty(t *testing.T) {
 func TestTokenSource_RevokedGrantSurfacesRetrieveError(t *testing.T) {
 	idp := newRotatingIDP(t, "rt-initial")
 	cfg := testConfig(t, idp.server.URL)
-	store := NewTestTokenStore(cfg.KeyringService)
+	store := NewTestTokenStore(cfg)
 	seedExpiredToken(t, store, cfg.ClientID, "rt-stale")
 
 	source, err := TokenSource(context.Background(), cfg, store)
@@ -277,7 +277,7 @@ func TestTokenSource_RevokedGrantSurfacesRetrieveError(t *testing.T) {
 // is the "no state directory" degradation lockRefresh documents.
 func unlockedTokenSource(t *testing.T, cfg Config, store *TokenStore) oauth2.TokenSource {
 	t.Helper()
-	tok, err := store.Load(cfg.ClientID)
+	tok, _, err := store.Load(cfg.ClientID)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -304,7 +304,7 @@ func unlockedTokenSource(t *testing.T, cfg Config, store *TokenStore) oauth2.Tok
 func TestTokenSource_WithoutTheLockTheGrantIsRevoked(t *testing.T) {
 	idp := newRotatingIDP(t, "rt-initial")
 	cfg := testConfig(t, idp.server.URL)
-	store := NewTestTokenStore(cfg.KeyringService)
+	store := NewTestTokenStore(cfg)
 	seedExpiredToken(t, store, cfg.ClientID, "rt-initial")
 
 	const processes = 8

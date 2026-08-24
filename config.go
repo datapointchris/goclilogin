@@ -35,10 +35,13 @@ type Config struct {
 	// Scopes requested at login. Empty means DefaultScopes.
 	Scopes []string
 
-	// LockDir holds the refresh lock. Empty means StateDir(KeyringService).
+	// StateDir holds this tool's own mutable state: the refresh lock, and the
+	// fallback token file used on hosts with no OS keyring. Empty means
+	// StateDir(KeyringService).
+	//
 	// It is never left unset in a way that skips locking, because an unlocked
 	// refresh is the failure this package exists to prevent.
-	LockDir string
+	StateDir string
 }
 
 // scopes resolves Scopes against its default.
@@ -49,10 +52,10 @@ func (c Config) scopes() []string {
 	return DefaultScopes
 }
 
-// lockDir resolves LockDir against its default.
-func (c Config) lockDir() string {
-	if c.LockDir != "" {
-		return c.LockDir
+// stateDir resolves StateDir against its default.
+func (c Config) stateDir() string {
+	if c.StateDir != "" {
+		return c.StateDir
 	}
 	return StateDir(c.KeyringService)
 }

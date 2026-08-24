@@ -3,6 +3,7 @@ package goclilogin
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/zalando/go-keyring"
@@ -68,61 +69,132 @@ func (osKeyring) Set(service, user, password string) error {
 func (osKeyring) Get(service, user string) (string, error) { return keyring.Get(service, user) }
 func (osKeyring) Delete(service, user string) error        { return keyring.Delete(service, user) }
 
-// TokenStore persists OAuth tokens in the OS keychain under one service name.
+// Backend names where a token came from or went. Two stores mean "where is my
+// token" has an answer worth reporting: a login says when it had to fall back,
+// and a status command says which one is in play.
+type Backend string
+
+const (
+	// BackendKeyring is the OS keychain, which is where a token belongs.
+	BackendKeyring Backend = "OS keyring"
+
+	// BackendFile is the mode-600 fallback file, used only where there is no
+	// keyring at all.
+	BackendFile Backend = "file"
+)
+
+// TokenStore persists OAuth tokens, in the OS keychain wherever there is one
+// and in a mode-600 file where there is not.
 type TokenStore struct {
 	service string
 	backend keyringBackend
+	file    *fileStore
 }
 
-// NewTokenStore returns a store writing under service, which is the value a
-// Config carries as KeyringService.
-func NewTokenStore(service string) *TokenStore {
-	return &TokenStore{service: service, backend: osKeyring{}}
+// NewTokenStore returns a store for cfg: the keychain under cfg.KeyringService,
+// with the fallback file inside cfg.StateDir.
+func NewTokenStore(cfg Config) *TokenStore {
+	return &TokenStore{
+		service: cfg.KeyringService,
+		backend: osKeyring{},
+		file:    newFileStore(cfg.stateDir()),
+	}
 }
 
-// NewTestTokenStore returns a store backed by an in-memory map. It exists so a
-// consumer can test its own command wiring without touching the real keychain,
+// NewTestTokenStore returns a store backed by an in-memory keyring. It exists so
+// a consumer can test its own command wiring without touching the real keychain,
 // which is shared machine state that tests must not write.
-func NewTestTokenStore(service string) *TokenStore {
-	return &TokenStore{service: service, backend: newMemoryKeyring()}
+func NewTestTokenStore(cfg Config) *TokenStore {
+	return &TokenStore{
+		service: cfg.KeyringService,
+		backend: newMemoryKeyring(),
+		file:    newFileStore(cfg.stateDir()),
+	}
 }
 
-// Save writes the token for clientID, replacing whatever was there. The id
-// token rides along in a field of its own, because oauth2.Token keeps it in an
-// Extra map that does not survive a JSON round-trip.
-func (t *TokenStore) Save(clientID string, tok *oauth2.Token) error {
-	data, err := json.Marshal(fromOAuth2(tok))
+// FilePath reports the fallback file, so a caller told the token went there can
+// name it.
+func (t *TokenStore) FilePath() string { return t.file.Path() }
+
+// Save writes the token for clientID and reports which backend took it.
+//
+// On Linux the keyring is the Secret Service over D-Bus, and a host without one
+// fails before any request is made — a bare Ubuntu userland answers
+// `exec: "dbus-launch": executable file not found in $PATH`. Refusing to store a
+// token there would make the CLI unusable on exactly the machines that have no
+// browser to fall back to. The token goes to a mode-600 file instead, and the
+// backend is returned rather than swallowed: a downgrade from keychain to
+// plaintext is not something to find out about later.
+//
+// The id token rides along in a field of its own, because oauth2.Token keeps it
+// in an Extra map that does not survive a JSON round-trip.
+func (t *TokenStore) Save(clientID string, tok *oauth2.Token) (Backend, error) {
+	stored := fromOAuth2(tok)
+	data, err := json.Marshal(stored)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return t.backend.Set(t.service, clientID, string(data))
+
+	keyringErr := t.backend.Set(t.service, clientID, string(data))
+	if keyringErr == nil {
+		return BackendKeyring, nil
+	}
+	if err := t.file.Set(clientID, stored); err != nil {
+		return "", fmt.Errorf("the OS keyring is unavailable (%v), and the fallback file failed: %w", keyringErr, err)
+	}
+	return BackendFile, nil
 }
 
-// Load returns the stored token for clientID, or ErrNotLoggedIn when the
-// keychain holds nothing for it. A missing entry is a normal state rather than
-// a fault, so callers branch on it and print a login hint.
-func (t *TokenStore) Load(clientID string) (*oauth2.Token, error) {
-	raw, err := t.backend.Get(t.service, clientID)
-	if errors.Is(err, keyring.ErrNotFound) {
-		return nil, ErrNotLoggedIn
+// Load returns the stored token for clientID and where it came from, or
+// ErrNotLoggedIn when neither store holds one. A missing entry is a normal state
+// rather than a fault, so callers branch on it and print a login hint.
+//
+// The keyring wins whenever it actually holds something, so a host that gains a
+// Secret Service later moves onto it without a re-login.
+func (t *TokenStore) Load(clientID string) (*oauth2.Token, Backend, error) {
+	raw, keyringErr := t.backend.Get(t.service, clientID)
+	if keyringErr == nil && raw != "" {
+		var s storedToken
+		if err := json.Unmarshal([]byte(raw), &s); err != nil {
+			return nil, "", err
+		}
+		return s.toOAuth2(), BackendKeyring, nil
 	}
+
+	stored, err := t.file.Get(clientID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	var s storedToken
-	if err := json.Unmarshal([]byte(raw), &s); err != nil {
-		return nil, err
+	if stored != nil {
+		return stored.toOAuth2(), BackendFile, nil
 	}
-	return s.toOAuth2(), nil
+
+	// Nothing anywhere. When the keyring failed for a reason other than an absent
+	// entry, that reason is the actionable part: on a host with no Secret Service
+	// the fix is a login, which will use the file, but on a machine that has one
+	// it is an unlocked keychain — and a bare ErrNotLoggedIn sends the user off to
+	// re-authenticate against a store that was never the problem.
+	if keyringErr != nil && !errors.Is(keyringErr, keyring.ErrNotFound) {
+		return nil, "", fmt.Errorf("%w (the OS keyring is also unavailable: %v)", ErrNotLoggedIn, keyringErr)
+	}
+	return nil, "", ErrNotLoggedIn
 }
 
-// Delete removes the stored token for clientID, returning ErrNotLoggedIn when
-// there was nothing to remove. It does not revoke the grant at the provider —
-// this machine simply forgets it.
+// Delete forgets the token in both stores rather than in the first one that
+// answers, returning ErrNotLoggedIn when neither held one. A token written to
+// the file before that host had a keyring would otherwise survive the logout
+// meant to remove it.
+//
+// It does not revoke the grant at the provider — this machine simply forgets it.
 func (t *TokenStore) Delete(clientID string) error {
-	err := t.backend.Delete(t.service, clientID)
-	if errors.Is(err, keyring.ErrNotFound) {
-		return ErrNotLoggedIn
+	keyringErr := t.backend.Delete(t.service, clientID)
+	fileErr := t.file.Delete(clientID)
+
+	if fileErr != nil && !errors.Is(fileErr, ErrNotLoggedIn) {
+		return fileErr
 	}
-	return err
+	if keyringErr == nil || fileErr == nil {
+		return nil
+	}
+	return ErrNotLoggedIn
 }

@@ -6,6 +6,51 @@ commit subjects cannot.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-08-24
+
+### Added
+
+A mode-600 file fallback for hosts with no OS keyring — WSL, containers, headless
+servers. On Linux the keychain is the Secret Service over D-Bus, and `go-keyring`
+fails there before any request is made. Refusing to store a token would make a
+CLI unusable on exactly the machines whose only other route is a browser they do
+not have.
+
+`Backend` names where a token went or came from, and `TokenStore.FilePath`
+reports the fallback file so a caller told the token went there can name it.
+
+### Changed — all three are breaking
+
+`TokenStore.Save` returns `(Backend, error)`. A downgrade from keychain to
+plaintext is reported at the moment it happens rather than swallowed, which is
+the whole point of having two stores.
+
+`TokenStore.Load` returns `(*oauth2.Token, Backend, error)` and reads the file
+when the keyring holds nothing. It still prefers the keyring whenever that holds
+a token, so a host that gains a provider later moves onto it with no re-login.
+When neither store has one and the keyring failed for a reason other than an
+absent entry, that reason is carried through the error — "not logged in" and
+"your keychain is locked" need different fixes.
+
+`NewTokenStore` and `NewTestTokenStore` take a `Config` rather than a service
+string, because the store now needs the state directory as well as the keyring
+namespace. `Config.LockDir` is renamed `StateDir` and holds both the refresh lock
+and the fallback token file; both are state this tool writes, so they live
+together.
+
+`TokenStore.Delete` now clears both stores rather than the first that answers. A
+token written to the file before that host had a keyring would otherwise survive
+the logout meant to remove it.
+
+### Notes for consumers
+
+Migrating from 0.1.0 is four call sites: `NewTokenStore(cfg)`, discard or use the
+`Backend` from `Save`, discard or use the `Backend` from `Load`, and rename the
+`LockDir` field. Nothing about the on-keychain format changed, so no re-login.
+
+Reproduce the keyringless case from any machine:
+`GOOS=linux go build -o /tmp/<cli> . && docker run --rm -v /tmp:/w ubuntu:24.04 /w/<cli> auth status`
+
 ## [0.1.0] — 2026-08-24
 
 ### Added

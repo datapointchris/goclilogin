@@ -45,7 +45,7 @@ func (l *lockingTokenSource) Token() (*oauth2.Token, error) {
 	// Whoever held the lock may have refreshed while this process waited for
 	// it. Their token is then the live one, and refreshing again would present
 	// the token their rotation already consumed.
-	if stored, err := l.store.Load(l.clientID); err == nil {
+	if stored, _, err := l.store.Load(l.clientID); err == nil {
 		l.tok = stored
 		if stored.Valid() {
 			return stored, nil
@@ -57,7 +57,7 @@ func (l *lockingTokenSource) Token() (*oauth2.Token, error) {
 		return nil, err
 	}
 	l.tok = refreshed
-	if err := l.store.Save(l.clientID, refreshed); err != nil {
+	if _, err := l.store.Save(l.clientID, refreshed); err != nil {
 		return refreshed, fmt.Errorf("persist refreshed token: %w", err)
 	}
 	return refreshed, nil
@@ -69,7 +69,7 @@ func (l *lockingTokenSource) Token() (*oauth2.Token, error) {
 // Wrap it with oauth2.NewClient to get an *http.Client that injects and renews
 // the bearer token on every request, so resource code never handles tokens.
 func TokenSource(ctx context.Context, cfg Config, store *TokenStore) (oauth2.TokenSource, error) {
-	tok, err := store.Load(cfg.ClientID)
+	tok, _, err := store.Load(cfg.ClientID)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func TokenSource(ctx context.Context, cfg Config, store *TokenStore) (oauth2.Tok
 		oauthCfg: oauthConfig(cfg, meta),
 		store:    store,
 		clientID: cfg.ClientID,
-		lockDir:  cfg.lockDir(),
+		lockDir:  cfg.stateDir(),
 		tok:      tok,
 	}, nil
 }

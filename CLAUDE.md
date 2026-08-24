@@ -15,7 +15,8 @@ automatically right. `go list -m all` from a consumer names them.
 | `doc.go` | Package doc: why the device grant, why refresh is serialized |
 | `config.go` | `Config`, `DefaultScopes`, `ClientID`, `StateDir` |
 | `login.go` | Discovery, the device grant, `DevicePrompt`, `WriteInstructions` |
-| `store.go` | `TokenStore` over the OS keychain, `ErrNotLoggedIn` |
+| `store.go` | `TokenStore` over both backends, `Backend`, `ErrNotLoggedIn` |
+| `filestore.go` | The mode-600 fallback for hosts with no keyring |
 | `memorykeyring.go` | The in-memory backend behind `NewTestTokenStore` |
 | `lock.go` | The machine-wide refresh lock |
 | `tokensource.go` | `TokenSource`, `VerifySession`, `IsSessionRejected` |
@@ -35,6 +36,18 @@ automatically right. `go list -m all` from a consumer names them.
   Blocking forever on a wedged holder is a worse failure than the race being
   prevented: the race costs one login, the block costs the CLI. `lockWait`
   bounds it at ten seconds, which is far past one HTTP round trip.
+- **The keyring downgrade stays visible.** `Save` returns the `Backend` it used,
+  `Load` reports where the token came from, and `Delete` clears both stores. This
+  is `standards/infrastructure.md` § "There is not always a keyring, and the
+  downgrade has to be visible", whose canonical source is `~/tools/ifiles/auth` —
+  a different token type under the same obligation. Never let `Save` swallow a
+  fall back to plaintext, and never let `Delete` stop at the first store that
+  answers: a file token written before that host had a keyring would outlive the
+  logout meant to remove it.
+- **A keyring that fails is not a keyring with no entry.** `Load` carries the
+  provider's own error through only in the first case. Reporting a locked
+  keychain as `ErrNotLoggedIn` sends the user to re-authenticate against a store
+  that was never the problem.
 - **`SessionUnverified` is never folded into the other two.** An unreachable
   provider proves nothing about the grant, and reporting it as live or rejected
   is the defect `VerifySession` was written to fix.
@@ -46,6 +59,9 @@ automatically right. `go list -m all` from a consumer names them.
   `cobracmd/` is ever added, cobra stays confined to it, per
   `standards/repo-structure.md` § "A library keeps its dependencies off its
   consumers' surface".
+- **No state directory means the store refuses rather than improvising.** There
+  is then no private place for a secret, and dropping one into a shared temp
+  directory is worse than failing.
 - **The dependency list is three and each earns its place**: `x/oauth2` for the
   protocol, `go-keyring` for the OS keychain, `gofrs/flock` for cross-platform
   locking. This is the credential path, so an addition here is weighed against
