@@ -24,6 +24,7 @@ jobs:
           # Action inputs resolve from the workspace root, not the job's
           # working-directory, so this needs the component path.
           go-version-file: "./go.mod"
+          cache: true
 
       - run: go build ./...
 
