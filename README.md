@@ -146,6 +146,18 @@ provider later moves onto it with no re-login, and it reports its backend too so
 a status command can say which one is in play. `Delete` clears both, or a file
 token outlives the logout meant to remove it.
 
+The fallback is for a host that may have no keyring, not for a keyring having a
+bad day. Where one demonstrably exists and still refuses, `Save` returns an error
+naming the fix instead of writing plaintext. A macOS login keychain that will not
+unlock from an SSH session is the common case: the lock is a condition of the
+session and clears with one command, but a token written to the file outlives it,
+because `Load` prefers the keyring only while the keyring holds something. So the
+plaintext copy would go on being used long after the reason for it had gone.
+
+Every Mac has a login keychain, which is what makes that attributable — a
+`security` failure there refused rather than being absent. A Secret Service error
+carries no such guarantee, so it stays unattributed and keeps the fallback.
+
 When nothing is stored anywhere *and* the keyring failed for a reason other than
 an absent entry, that reason is carried through the error. "Not logged in" and
 "your keychain is locked" need different fixes, and a bare `ErrNotLoggedIn`

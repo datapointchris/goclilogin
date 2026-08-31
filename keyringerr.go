@@ -35,6 +35,13 @@ const (
 	keyringRefused
 )
 
+// keyringPresent reports a keyring this host demonstrably has. It is the fact
+// Save needs: a token goes to plaintext only where there may be nowhere better
+// to put it, and a keyring known to exist means there is somewhere better.
+func (c keyringCause) keyringPresent() bool {
+	return c == keyringLocked || c == keyringRefused
+}
+
 func (c keyringCause) String() string {
 	switch c {
 	case keyringLocked:
@@ -48,10 +55,18 @@ func (c keyringCause) String() string {
 
 // keyringDiagnosis is the attributed cause and the sentence built from it. The
 // cause is the value; Reason is what a renderer does with it.
+//
+// It is an error so that Save can refuse with it directly, and it unwraps to the
+// provider's own failure so a caller that wants the exit status can still reach
+// it rather than parsing Reason back apart.
 type keyringDiagnosis struct {
 	Cause  keyringCause
 	Reason string
+	err    error
 }
+
+func (d keyringDiagnosis) Error() string { return d.Reason }
+func (d keyringDiagnosis) Unwrap() error { return d.err }
 
 // diagnoseKeyring attributes a keyring failure before either cause is blamed,
 // per standards/help.md § "A failure with two causes is attributed before either
@@ -74,16 +89,19 @@ func diagnoseKeyring(goos string, err error) keyringDiagnosis {
 				Reason: "the login keychain is locked and this session cannot prompt to unlock it" +
 					" — run `security unlock-keychain` in this session first" +
 					" (an SSH session is the usual way to land here: it does not inherit the console session's keychain access)",
+				err: err,
 			}
 		}
 		return keyringDiagnosis{
 			Cause:  keyringRefused,
 			Reason: "the login keychain refused: " + err.Error(),
+			err:    err,
 		}
 	}
 
 	return keyringDiagnosis{
 		Cause:  keyringUnattributed,
 		Reason: "the OS keyring is unavailable (" + err.Error() + ")",
+		err:    err,
 	}
 }

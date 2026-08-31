@@ -44,6 +44,14 @@ automatically right. `go list -m all` from a consumer names them.
   fall back to plaintext, and never let `Delete` stop at the first store that
   answers: a file token written before that host had a keyring would outlive the
   logout meant to remove it.
+- **The fallback is for a host that may have no keyring, not for a keyring that
+  refused.** `Save` returns an error where `diag.Cause.keyringPresent()`, because
+  a locked keychain is a condition of the session while a file token outlives it
+  — `Load` prefers the keyring only while the keyring holds something, so the
+  plaintext copy goes on being used after the lock is gone. `keyringUnattributed`
+  is the only cause that reaches the file, and a Secret Service error stays
+  unattributed on purpose: refusing there would strand the hosts the fallback was
+  built for.
 - **A keyring that fails is not a keyring with no entry.** `Load` carries the
   provider's own error through only in the first case. Reporting a locked
   keychain as `ErrNotLoggedIn` sends the user to re-authenticate against a store

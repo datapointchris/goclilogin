@@ -90,6 +90,13 @@ type TokenStore struct {
 	service string
 	backend keyringBackend
 	file    *fileStore
+
+	// goos decides how a keyring failure is attributed, and attribution decides
+	// whether the fallback file is reached at all. It is a field rather than a
+	// read of runtime.GOOS at the call site so a test can drive the macOS policy
+	// from any machine — the alternative is a rule that only ever runs on the
+	// platform nobody runs CI on.
+	goos string
 }
 
 // NewTokenStore returns a store for cfg: the keychain under cfg.KeyringService,
@@ -99,6 +106,7 @@ func NewTokenStore(cfg Config) *TokenStore {
 		service: cfg.KeyringService,
 		backend: osKeyring{},
 		file:    newFileStore(cfg.stateDir()),
+		goos:    runtime.GOOS,
 	}
 }
 
@@ -110,6 +118,7 @@ func NewTestTokenStore(cfg Config) *TokenStore {
 		service: cfg.KeyringService,
 		backend: newMemoryKeyring(),
 		file:    newFileStore(cfg.stateDir()),
+		goos:    runtime.GOOS,
 	}
 }
 
@@ -127,6 +136,14 @@ func (t *TokenStore) FilePath() string { return t.file.Path() }
 // backend is returned rather than swallowed: a downgrade from keychain to
 // plaintext is not something to find out about later.
 //
+// A keyring the host demonstrably has is a different matter, and Save refuses
+// rather than downgrading. A locked macOS keychain is a condition of the session
+// and clears with one command, but a token written to the file outlives it —
+// Load prefers the keyring only while the keyring holds something, so the
+// plaintext copy keeps being used until a re-login moves it back. Trading a
+// transient failure for a durable plaintext secret is not a trade the caller
+// asked for, so the error names the fix instead.
+//
 // The id token rides along in a field of its own, because oauth2.Token keeps it
 // in an Extra map that does not survive a JSON round-trip.
 func (t *TokenStore) Save(clientID string, tok *oauth2.Token) (Backend, error) {
@@ -141,7 +158,11 @@ func (t *TokenStore) Save(clientID string, tok *oauth2.Token) (Backend, error) {
 		return BackendKeyring, nil
 	}
 
-	diag := diagnoseKeyring(runtime.GOOS, keyringErr)
+	diag := diagnoseKeyring(t.goos, keyringErr)
+	if diag.Cause.keyringPresent() {
+		return "", diag
+	}
+
 	if err := t.file.Set(clientID, stored); err != nil {
 		return "", fmt.Errorf("%s, and the fallback file failed: %w", diag.Reason, err)
 	}
@@ -178,7 +199,7 @@ func (t *TokenStore) Load(clientID string) (*oauth2.Token, Backend, error) {
 	// it is an unlocked keychain — and a bare ErrNotLoggedIn sends the user off to
 	// re-authenticate against a store that was never the problem.
 	if keyringErr != nil && !errors.Is(keyringErr, keyring.ErrNotFound) {
-		reason := diagnoseKeyring(runtime.GOOS, keyringErr).Reason
+		reason := diagnoseKeyring(t.goos, keyringErr).Reason
 		return nil, "", fmt.Errorf("%w (%s)", ErrNotLoggedIn, reason)
 	}
 	return nil, "", ErrNotLoggedIn
