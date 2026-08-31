@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/zalando/go-keyring"
@@ -139,8 +140,10 @@ func (t *TokenStore) Save(clientID string, tok *oauth2.Token) (Backend, error) {
 	if keyringErr == nil {
 		return BackendKeyring, nil
 	}
+
+	diag := diagnoseKeyring(runtime.GOOS, keyringErr)
 	if err := t.file.Set(clientID, stored); err != nil {
-		return "", fmt.Errorf("the OS keyring is unavailable (%v), and the fallback file failed: %w", keyringErr, err)
+		return "", fmt.Errorf("%s, and the fallback file failed: %w", diag.Reason, err)
 	}
 	return BackendFile, nil
 }
@@ -175,7 +178,8 @@ func (t *TokenStore) Load(clientID string) (*oauth2.Token, Backend, error) {
 	// it is an unlocked keychain — and a bare ErrNotLoggedIn sends the user off to
 	// re-authenticate against a store that was never the problem.
 	if keyringErr != nil && !errors.Is(keyringErr, keyring.ErrNotFound) {
-		return nil, "", fmt.Errorf("%w (the OS keyring is also unavailable: %v)", ErrNotLoggedIn, keyringErr)
+		reason := diagnoseKeyring(runtime.GOOS, keyringErr).Reason
+		return nil, "", fmt.Errorf("%w (%s)", ErrNotLoggedIn, reason)
 	}
 	return nil, "", ErrNotLoggedIn
 }
