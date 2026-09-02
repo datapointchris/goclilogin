@@ -53,9 +53,9 @@ jobs:
       # For a library 1.0 is a compatibility promise to every consumer, so it
       # stays a deliberate act: drop this input when the API is settled.
       #
-      # No changelog-file: CHANGELOG.md is hand-written API prose explaining why
-      # a change matters to a consumer, which generated commit subjects cannot.
-      # New entries go under `## [Unreleased]`.
+      # No changelog-file: the release body is the changelog. A consumer
+      # deciding whether a version matters reads it on the release page, next
+      # to the tag they are about to require.
       - uses: go-semantic-release/action@v1
         id: semrel
         with:
