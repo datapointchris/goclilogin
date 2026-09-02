@@ -43,11 +43,11 @@ jobs:
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
           golangci-lint run --allow-parallel-runners
 
-      # Two advisories found by hand on 2026-07-26 that this would have caught:
-      # GO-2026-5932 (x/crypto/openpgp, unmaintained and unfixed) reached three
-      # repos through go-selfupdate, and GO-2026-5856 (crypto/tls) shipped
-      # because a stale `go` directive picks the toolchain that compiles the
-      # binary, so the stdlib goes stale with it.
+      # Two classes of advisory this catches and a lockfile scan does not. An
+      # unmaintained transitive dependency reaches a repo through something it
+      # imports rather than through anything it declares. And the `go` directive
+      # picks the toolchain that compiles the binary, so a stale one takes a
+      # stale standard library with it.
       - name: Vulnerabilities
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
