@@ -1,3 +1,4 @@
+# forge-managed
 version: "2"
 run:
   modules-download-mode: readonly
@@ -39,13 +40,13 @@ issues:
   max-same-issues: 0
 # gofumpt is deliberately absent, and enforced by the go-fumpt-repo hook
 # instead. golangci's copy has no module path, so it reads a module named
-# without a dot — nomad/api, meso/api, learning/api — as stdlib and merges the
-# local imports into the standard block. Real gofumpt resolves the path from
-# go.mod and splits them back out, so the two rewrote the same files in
-# opposite directions and no such repo could be green in both at once.
+# without a dot as stdlib and merges the local imports into the standard block.
+# Real gofumpt resolves the path from go.mod and splits them back out, so the two
+# rewrote the same files in opposite directions and no such repo could be green
+# in both at once.
 #
 # Passing module-path here cannot work: one config serves every module in a
-# repo, and nomad alone has api/ and cli/.
+# repo, and a repo can hold more than one.
 formatters:
   exclusions:
     generated: lax
