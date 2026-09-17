@@ -101,3 +101,14 @@ The trigger to revisit is a requirement for one of those, at which point
 RFC 8628 on the relying-party side — becomes worth the migration. It has no
 token persistence and no cross-process safety, so it would replace `login.go`
 and leave everything else standing.
+
+## Never write the breaking-change trailer in a commit message
+
+Those two words anywhere in a message cut a major here, and a major on a Go module
+with no `/vN` path is an outage rather than a version: `go install ...@latest` stops
+seeing the tag, every installed binary is stranded, and recovery is a reinstall on
+each machine. The analyzer matches unanchored and ORs past `.semrelrc`, so nothing
+switches it off, and a commit that merely *discusses* the trailer cuts one too — say
+"that marker" instead. Deliberate majors are `chore(release-major)`. Reset procedure
+and the measurement: `standards/release.md` § "Never write the breaking-change
+trailer in a Go repo's commit message".
