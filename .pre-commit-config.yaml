@@ -21,8 +21,8 @@ repos:
         # and silently resolves the highest v1 instead. The analyzer matches this
         # marker unanchored against the raw message and ORs it with the
         # configured rules, so .semrelrc cannot stop it and it majors even a
-        # `fix:`. Prose could not stop it either — three repos crossed in one
-        # evening with the ban already written down.
+        # `fix:`. A ban written in prose does not stop it either, because nothing
+        # reads the prose between the commit and the release.
         #
         # $HOME is not usable here and no script is either: this has to run on
         # any clone, so the whole check is inline. pre-commit execs entry without

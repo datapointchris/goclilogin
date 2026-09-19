@@ -42,8 +42,8 @@ issues:
 # instead. golangci's copy has no module path, so it reads a module named
 # without a dot as stdlib and merges the local imports into the standard block.
 # Real gofumpt resolves the path from go.mod and splits them back out, so the two
-# rewrote the same files in opposite directions and no such repo could be green
-# in both at once.
+# would rewrite the same imports in opposite directions, and a repo could not
+# pass both.
 #
 # Passing module-path here cannot work: one config serves every module in a
 # repo, and a repo can hold more than one.
