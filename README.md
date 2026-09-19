@@ -82,6 +82,12 @@ running the CLI, which is false over SSH. The device grant moves approval to any
 browser on any device and leaves the CLI polling, so logging in on a remote box
 does not mean physically going to it.
 
+`WriteInstructions` prints `BrowserURL`, the verification URL with the code
+already in it wherever the provider sends one. The bare verification page is not
+enough on its own: Authelia takes a browser that is already signed in straight
+past it, and there is then nowhere to type the code. The code is printed as well,
+to check against the approval screen.
+
 ## Telling a soft expiry from a revoked grant
 
 A stored token says what the machine holds, not what the provider will honor. A

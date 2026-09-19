@@ -63,9 +63,10 @@ type DevicePrompt struct {
 	// UserCode is what the user enters on the verification page.
 	UserCode string
 
-	// VerificationURI is the page to open, without the code embedded. This is
-	// the one to show a human, because it is short enough to read off a screen
-	// and type on another device.
+	// VerificationURI is the page to open, without the code embedded. Send a
+	// user here only where VerificationURIComplete is empty: some providers,
+	// Authelia among them, take a browser that is already signed in straight
+	// past this page, and it then has nowhere to type the code.
 	VerificationURI string
 
 	// VerificationURIComplete carries the code already embedded, so a browser
@@ -74,8 +75,9 @@ type DevicePrompt struct {
 	VerificationURIComplete string
 }
 
-// BrowserURL is the URL to hand a browser: the complete one where the provider
-// supplied it, the bare one otherwise.
+// BrowserURL is the URL to send a user to, whether a browser is opened on it
+// or it is printed for one on another device: the complete one where the
+// provider supplied it, the bare one otherwise.
 func (p DevicePrompt) BrowserURL() string {
 	if p.VerificationURIComplete != "" {
 		return p.VerificationURIComplete
@@ -124,10 +126,19 @@ func Login(ctx context.Context, cfg Config, show func(DevicePrompt)) (*oauth2.To
 // WriteInstructions is the conventional rendering of a DevicePrompt, offered so
 // every CLI does not spell it out again. Write it to stderr, so a command that
 // prints a token to stdout stays pipeable.
+//
+// The URL printed is BrowserURL, the same one a local browser is handed, so
+// a login approved on another device reaches the same approval screen. The
+// code is printed as well: with the complete URL it is there to check against
+// that screen, and with the bare one it is what the user types.
 func WriteInstructions(w io.Writer, clientID string, p DevicePrompt) {
 	_, _ = fmt.Fprintf(w, "\nSigning in as %s\n\n", clientID)
 	_, _ = fmt.Fprintf(w, "  Code:  %s\n", p.UserCode)
-	_, _ = fmt.Fprintf(w, "  Open:  %s\n\n", p.VerificationURI)
-	_, _ = fmt.Fprintln(w, "Open that URL in any browser, on any device, and enter the code.")
+	_, _ = fmt.Fprintf(w, "  Open:  %s\n\n", p.BrowserURL())
+	if p.VerificationURIComplete != "" {
+		_, _ = fmt.Fprintln(w, "Open that URL in any browser, on any device, and check it shows the code.")
+	} else {
+		_, _ = fmt.Fprintln(w, "Open that URL in any browser, on any device, and enter the code.")
+	}
 	_, _ = fmt.Fprintln(w, "Waiting for approval...")
 }
