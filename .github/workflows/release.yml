@@ -15,6 +15,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Without this, release publishes whatever is on main, linted or not.
+  validate:
+    uses: ./.github/workflows/validate.yml
+
   # A library ships as a git tag, so the only thing that must hold is that the
   # tagged commit is green. Publishing a broken tag is unfixable: the module
   # proxy serves any tagged version on demand, caches it permanently, and it
@@ -22,7 +26,7 @@ jobs:
   #
   # Running before the tag exists is the point. A workflow triggered by the tag
   # has already published the module by the time its checks run.
-  validate:
+  cross-platform:
     strategy:
       fail-fast: false
       matrix:
@@ -42,7 +46,7 @@ jobs:
       - run: go test -race ./...
 
   release:
-    needs: validate
+    needs: [validate, cross-platform]
     uses: datapointchris/reusable-workflows/.github/workflows/go-semantic-release.yml@v1
     permissions:
       contents: write
