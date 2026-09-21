@@ -7,9 +7,9 @@ on:
 permissions:
   contents: read
 
-# Two pushes to main inside one run's window would otherwise race, and the later
-# run fails pushing its version bump onto a ref that has already moved.
-# Never cancel-in-progress: a canceled release can leave a tag with no release.
+# Two pushes to main inside one run's window would otherwise race to cut the
+# same version. Never cancel-in-progress: a canceled release can leave a tag
+# with no release.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -20,10 +20,8 @@ jobs:
   # proxy serves any tagged version on demand, caches it permanently, and it
   # cannot be retracted, only superseded.
   #
-  # Running before the tag exists is the point. While releases were cut by hand
-  # the trigger was the tag itself, so `git push origin v0.5.0` had already
-  # published the module by the time these checks ran — they gated the GitHub
-  # Release object, which nothing resolves a module from.
+  # Running before the tag exists is the point. A workflow triggered by the tag
+  # has already published the module by the time its checks run.
   validate:
     strategy:
       fail-fast: false
@@ -45,36 +43,14 @@ jobs:
 
   release:
     needs: validate
-    runs-on: ubuntu-latest
+    uses: datapointchris/reusable-workflows/.github/workflows/go-semantic-release.yml@v1
     permissions:
       contents: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      # allow-initial-development-versions is what keeps this on 0.x. Without it
-      # go-semantic-release forces a major bump on *any* change while the major
-      # is 0, so the next `fix:` would ship 1.0.0 — which is how bbkt, sess and
-      # bashselfupdate all arrived at 1.0.0 on their first automated release.
+    with:
+      # Keeps this on 0.x. Without it go-semantic-release forces a major bump on
+      # any change while the major is 0, so the next `fix:` would ship 1.0.0.
       # For a library 1.0 is a compatibility promise to every consumer, so it
       # stays a deliberate act: drop this input when the API is settled.
-      #
-      # No changelog-file: the release body is the changelog. A consumer
-      # deciding whether a version matters reads it on the release page, next
-      # to the tag they are about to require.
-      - uses: go-semantic-release/action@v1
-        id: semrel
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          allow-initial-development-versions: true
-
+      allow-initial-development-versions: true
       # pkg.go.dev only indexes a version once the proxy has fetched it.
-      - name: Prime the module proxy
-        if: steps.semrel.outputs.version != ''
-        env:
-          VERSION: ${{ steps.semrel.outputs.version }}
-        run: |
-          module="$(go list -m)"
-          curl -fsS "https://proxy.golang.org/${module}/@v/v${VERSION}.info" || \
-            echo "proxy has not picked up v${VERSION} yet; it will on first fetch"
+      prime-module-proxy: true
