@@ -2,6 +2,8 @@
 
 OIDC device-grant login for Go command-line tools. Tokens live in the OS
 keychain, and the refresh is serialized across every process on the machine.
+The same tools run by a service, with no person to approve a login, use the
+client-credentials grant instead.
 
 ```go
 cfg := goclilogin.Config{
@@ -105,6 +107,42 @@ rather than being folded into either of the others.
 happens inside the transport of whichever request triggered it, so a refusal
 reaches a command as that request's error — carrying a URL and a raw OAuth
 description, and naming nothing the user can do about it.
+
+## A service authenticates as itself
+
+A scheduler running the CLI unattended has no person to approve a device login,
+and borrowing a person's login makes the service act as them. A confidential
+client using the client-credentials grant (RFC 6749 §4.4) is the service's own
+identity instead:
+
+```go
+secret := os.Getenv("MYAPP_CLIENT_SECRET") // wherever the caller keeps it
+source, err := goclilogin.ClientCredentialsTokenSource(ctx, goclilogin.Config{
+    Issuer:   "https://auth.example.com",
+    ClientID: goclilogin.ClientID("myapp"),
+    Scopes:   []string{"myapp.items.read"},
+}, secret)
+client := oauth2.NewClient(ctx, source)
+```
+
+The package takes the secret as an argument and reads it from nowhere. Where it
+lives, and what the variable is called, is the CLI's decision, as the client id
+already is.
+
+`Scopes` is sent as given. `DefaultScopes` does not apply: `openid` and
+`offline_access` mean nothing to this grant, and Authelia refuses a
+client-credentials client that holds them. Authelia also grants such a request
+only the scopes it names, so name them.
+
+Tokens live in memory for the life of the process, and a new one is requested
+once the last expires. Nothing is written to the keychain or the state
+directory, and no lock is taken. The grant issues no refresh token, so there is
+nothing to store and no rotation for processes to race on.
+
+The client authenticates with HTTP Basic, which RFC 6749 §2.3.1 requires every
+provider to support. A refused secret is an `*oauth2.RetrieveError`, so
+`ClassifySession(source.Token())` reports it as `SessionRejected`. What fixes it
+is the secret or the client's registration, not a login.
 
 ## Configuration
 

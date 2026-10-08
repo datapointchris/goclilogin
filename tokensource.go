@@ -94,8 +94,11 @@ const (
 	// SessionLive means a usable access token was obtained.
 	SessionLive SessionState = "live"
 
-	// SessionRejected means the provider refused the refresh. Only an
-	// interactive login fixes it.
+	// SessionRejected means the provider refused to issue a token. For a
+	// device-grant session that is a refused refresh, and only an interactive
+	// login fixes it. For a client-credentials client it is the client's own
+	// credentials refused, and the secret or the client's registration is what
+	// needs fixing.
 	SessionRejected SessionState = "rejected"
 
 	// SessionUnverified means the provider could not be reached to ask, which
@@ -133,8 +136,8 @@ func ClassifySession(token *oauth2.Token, err error) (SessionState, *oauth2.Toke
 	return SessionUnverified, nil
 }
 
-// IsSessionRejected reports whether err is the provider refusing a refresh,
-// anywhere in its chain.
+// IsSessionRejected reports whether err is the provider refusing to issue a
+// token, anywhere in its chain.
 //
 // It is worth a helper because of where the refusal surfaces. A refresh happens
 // inside the transport of whichever request triggered it, so the failure

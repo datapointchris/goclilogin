@@ -20,6 +20,7 @@ automatically right. `go list -m all` from a consumer names them.
 | `memorykeyring.go` | The in-memory backend behind `NewTestTokenStore` |
 | `lock.go` | The machine-wide refresh lock |
 | `tokensource.go` | `TokenSource`, `VerifySession`, `IsSessionRejected` |
+| `clientcredentials.go` | `ClientCredentialsTokenSource`, for a CLI run by a service |
 
 ## Constraints that must not regress
 
@@ -59,6 +60,11 @@ automatically right. `go list -m all` from a consumer names them.
 - **`SessionUnverified` is never folded into the other two.** An unreachable
   provider proves nothing about the grant, and reporting it as live or rejected
   is the defect `VerifySession` was written to fix.
+- **The client-credentials source persists nothing and reads no environment.**
+  Its tokens live in process memory and are requested again once expired, so a
+  service's token never outlives the run that fetched it. The secret is an
+  argument because the consumers already resolve their client id through their
+  own layers, and a second resolver here could disagree with them.
 - **Presentation stays with the caller.** `Login` takes a `func(DevicePrompt)`;
   it never writes to a stream itself. `WriteInstructions` is offered, not
   imposed.

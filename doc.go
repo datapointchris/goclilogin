@@ -29,4 +29,12 @@
 // refresh and re-reads the store once it has the lock, so a process that waited
 // uses the winner's token instead of replaying its own. A mutex cannot cover
 // this, because the contention is between processes.
+//
+// # When no person is present
+//
+// A CLI run unattended, by a scheduler for one, has nobody to approve a device
+// login. ClientCredentialsTokenSource authenticates a confidential client as
+// itself instead, so the service holds its own identity rather than a person's.
+// That grant issues no refresh token, so it needs neither the keychain nor the
+// lock.
 package goclilogin

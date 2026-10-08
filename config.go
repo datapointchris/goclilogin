@@ -16,8 +16,9 @@ import (
 // that needs such a scope sets Scopes itself and accepts the consequence.
 var DefaultScopes = []string{"openid", "profile", "offline_access"}
 
-// Config is one CLI's view of one deployment. Every field except Scopes and
-// LockDir is required; those two have documented defaults.
+// Config is one CLI's view of one deployment. A device-grant login requires
+// every field except Scopes and StateDir, which have documented defaults.
+// ClientCredentialsTokenSource reads only Issuer, ClientID and Scopes.
 type Config struct {
 	// Issuer is the OIDC provider's base URL. Discovery hangs off it.
 	Issuer string
@@ -32,7 +33,8 @@ type Config struct {
 	// sharing a keychain do not collide.
 	KeyringService string
 
-	// Scopes requested at login. Empty means DefaultScopes.
+	// Scopes requested at login. Empty means DefaultScopes for a device-grant
+	// login; ClientCredentialsTokenSource sends it as given.
 	Scopes []string
 
 	// StateDir holds this tool's own mutable state: the refresh lock, and the
