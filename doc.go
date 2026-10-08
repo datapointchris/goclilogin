@@ -33,9 +33,9 @@
 // # When no person is present
 //
 // A CLI run unattended, by a scheduler for one, has nobody to approve a device
-// login. ClientCredentialsTokenSource authenticates a ServiceClient, a
-// confidential client registered for the service, as itself instead. The
-// service then holds its own identity rather than a person's.
-// That grant issues no refresh token, so it needs neither the keychain nor the
-// lock.
+// login. ClientCredentialsTokenSource authenticates a ServiceClient as itself
+// instead. A ServiceClient is a confidential client registered for the service
+// alone, so the service holds its own identity rather than a person's. The
+// client-credentials grant issues no refresh token, so
+// ClientCredentialsTokenSource uses neither the keychain nor the lock.
 package goclilogin

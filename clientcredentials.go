@@ -10,23 +10,23 @@ import (
 )
 
 // ServiceClient is a confidential client that a service authenticates as, with
-// no person present. It is not a Config because nothing about the device grant
-// applies to it: there is no keychain, no state directory and no default scope.
+// no person present. Unlike Config it has no keyring service or state
+// directory, because nothing it obtains is stored.
 type ServiceClient struct {
 	// Issuer is the OIDC provider's base URL. Discovery hangs off it.
 	Issuer string
 
 	// ClientID is the confidential client registered for the service. It is
-	// never what the ClientID function returns. That names the public
+	// never what the ClientID function returns. That function names the public
 	// device-grant client for one machine, which holds no secret and cannot use
 	// this grant.
 	ClientID string
 
-	// Scopes are sent as given, and an empty list is refused. A provider that
-	// grants only what a request names, Authelia among them, would otherwise
-	// issue a token that can do nothing. openid and offline_access mean nothing
-	// to this grant, and some providers refuse a client-credentials client that
-	// holds them.
+	// Scopes are sent as given and must not be empty. Authelia grants only the
+	// scopes a request names, so a request naming none would get a token whose
+	// scp is empty. DefaultScopes does not apply. Its openid and offline_access
+	// mean nothing to this grant, and Authelia's validator rejects a
+	// client-credentials client holding either.
 	Scopes []string
 }
 
@@ -38,14 +38,13 @@ type ServiceClient struct {
 // The secret is an argument because where it comes from is the caller's
 // decision, as the client id already is. This package reads it from nowhere.
 //
-// Tokens live in memory for the life of the process, and a new one is
-// requested when the last expires. Nothing is persisted and no lock is taken.
-// The grant issues no refresh token, so there is nothing to store and no
-// rotation for processes to race on.
+// Tokens live in process memory. A new one is requested when the last expires.
+// Nothing is persisted and no lock is taken. The grant issues no refresh token,
+// so there is nothing to store and no rotation for processes to race on.
 //
 // The client authenticates with HTTP Basic, the method RFC 6749 §2.3.1 requires
-// every provider to support. ClassifySession reads a refusal the provider
-// states as SessionRejected, and an unreachable provider as SessionUnverified.
+// every provider to support. ClassifySession reports a wrong secret or an
+// unheld scope as SessionRejected, and a 5xx or 429 answer as SessionUnverified.
 func ClientCredentialsTokenSource(ctx context.Context, client ServiceClient, secret string) (oauth2.TokenSource, error) {
 	if client.ClientID == "" {
 		return nil, errors.New("client credentials need a client id")

@@ -108,17 +108,18 @@ happens inside the transport of whichever request triggered it, so a refusal
 reaches a command as that request's error — carrying a URL and a raw OAuth
 description, and naming nothing the user can do about it.
 
-Only a refusal the provider states counts: an OAuth error code, on any answer
-but a 5xx or a 429. x/oauth2 returns the same error type for a proxy's 502 page
-and for a provider shedding load. Neither says anything about the grant, so both
-are `SessionUnverified`, and nobody is sent to log in again during an outage.
+`IsSessionRejected` counts only a refusal the provider states: an OAuth error
+code, on any answer but a 5xx or a 429. x/oauth2 returns `*oauth2.RetrieveError`
+for a proxy's 502 page and for a provider shedding load as well. Neither says
+anything about the grant, so both are `SessionUnverified`, and an outage sends
+nobody to log in again.
 
 ## A service authenticates as itself
 
-A scheduler running the CLI unattended has no person to approve a device login,
-and borrowing a person's login makes the service act as them. A confidential
-client using the client-credentials grant (RFC 6749 §4.4) is the service's own
-identity instead:
+A scheduler running the CLI unattended has no person to approve a device login.
+Borrowing a person's login makes the service act as them. A confidential client
+using the client-credentials grant (RFC 6749 §4.4) is the service's own identity
+instead:
 
 ```go
 secret := os.Getenv("MYAPP_CLIENT_SECRET") // wherever the caller keeps it
@@ -130,32 +131,36 @@ source, err := goclilogin.ClientCredentialsTokenSource(ctx, goclilogin.ServiceCl
 client := oauth2.NewClient(ctx, source)
 ```
 
-The client id is its own confidential registration at the provider. It is
-never what `ClientID` returns. That names the public device-grant client for one
-machine, which holds no secret and cannot use this grant, and registering it as
-confidential breaks the device login on that host. Name the service's client so
-your API can tell it from a person's, and admit it only as the service.
+`myapp-svc-scheduler` is a confidential client registered at the provider for
+the service alone. It is never what `goclilogin.ClientID(product)` returns. That
+function names the public device-grant client for one machine, which holds no
+secret and cannot use this grant. Registering that id as confidential breaks the
+device login on that host.
 
-The package takes the secret as an argument and reads it from nowhere. Where it
-lives, and what the variable is called, is the CLI's decision, as the client id
-already is.
+Give the service's client a name your API can tell from a person's, such as a
+`-svc-` prefix. The API then admits it as the service, limited to its scopes,
+and never as a user.
 
-`Scopes` is sent as given, and an empty list is refused. Authelia grants a
-client-credentials request only the scopes it names, so a request naming none
-would get a token that can do nothing. `DefaultScopes` does not apply: `openid`
-and `offline_access` mean nothing to this grant, and Authelia refuses a
-client-credentials client that holds them.
+`ClientCredentialsTokenSource` takes the secret as an argument and reads no
+environment. Where the secret lives, and what the variable is called, is the
+CLI's decision, as the client id already is.
 
-Tokens live in memory for the life of the process, and a new one is requested
-once the last expires. Nothing is written to the keychain or the state
-directory, and no lock is taken. The grant issues no refresh token, so there is
-nothing to store and no rotation for processes to race on.
+`Scopes` is sent as given. An empty list is refused before any request.
+Authelia grants only the scopes a request names, so a request naming none would
+get a token whose `scp` is empty. `DefaultScopes` does not apply. Its `openid` and
+`offline_access` mean nothing to this grant, and Authelia's validator rejects a
+client-credentials client holding either.
+
+Tokens live in process memory. A new one is requested once the last expires.
+Nothing is written to the keychain or the state directory, and no lock is taken.
+The grant issues no refresh token, so there is nothing to store and no rotation
+for processes to race on.
 
 The client authenticates with HTTP Basic, which RFC 6749 §2.3.1 requires every
-provider to support. A wrong secret, or a scope the client does not hold, is a
-refusal the provider states, so `ClassifySession` reports it as
-`SessionRejected`. What fixes it is the secret or the client's registration, not
-a login.
+provider to support. The provider answers a wrong secret with a 401
+`invalid_client` and an unheld scope with a 400 `invalid_scope`.
+`ClassifySession` reports both as `SessionRejected`. What fixes either is the
+secret or the client's registration, not a login.
 
 ## Configuration
 

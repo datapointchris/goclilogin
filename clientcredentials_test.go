@@ -20,9 +20,10 @@ const (
 )
 
 // serviceIDP issues tokens to one confidential client, authenticated by HTTP
-// Basic, the way a provider like Authelia does: it grants only the scopes a
-// request names, refuses one the client does not hold, and holds no openid.
-// failWith makes something other than the provider answer the token request.
+// Basic. Like Authelia, it grants only the scopes a request names and answers
+// one the client does not hold, openid included, with 400 invalid_scope. A
+// non-zero failWith answers the token request with failBody in the provider's
+// place, the way a proxy in front of it would.
 type serviceIDP struct {
 	server    *httptest.Server
 	held      map[string]bool
@@ -155,8 +156,8 @@ func TestClientCredentialsTokenSource_AnExpiredTokenIsRequestedAgain(t *testing.
 	}
 }
 
-// Each case is classified from a resource request's error, which wraps the
-// token failure, because that is what a command holds when its token is refused.
+// A command holds a resource request's error, with the token failure wrapped
+// inside it, so each case is classified from that error.
 func TestClientCredentialsTokenSource_OnlyARefusalTheProviderStatesIsRejected(t *testing.T) {
 	cases := []struct {
 		name     string

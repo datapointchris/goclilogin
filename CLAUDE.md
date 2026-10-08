@@ -60,15 +60,15 @@ automatically right. `go list -m all` from a consumer names them.
 - **`SessionUnverified` is never folded into the other two.** An unreachable
   provider proves nothing about the grant, and reporting it as live or rejected
   is the defect `VerifySession` was written to fix. x/oauth2 returns a
-  `RetrieveError` for every non-2xx answer, a proxy's 502 page included, so
-  `IsSessionRejected` needs an OAuth error code on a status that is neither a
-  5xx nor a 429. Matching the type alone sends someone to log in again, or to
-  rotate a secret, during an outage.
-- **The client-credentials source persists nothing and reads no environment.**
+  `RetrieveError` for every non-2xx answer, a proxy's 502 page included.
+  `IsSessionRejected` therefore needs an OAuth error code on a status that is
+  neither a 5xx nor a 429. Matching the type alone sends someone to log in
+  again, or to rotate a secret, during an outage.
+- **`ClientCredentialsTokenSource` persists nothing and reads no environment.**
   Its tokens live in process memory and are requested again once expired, so a
   service's token never outlives the run that fetched it. The secret is an
   argument because the consumers already resolve their client id through their
-  own layers, and a second resolver here could disagree with them.
+  own config layers. A second resolver here could disagree with them.
 - **Presentation stays with the caller.** `Login` takes a `func(DevicePrompt)`;
   it never writes to a stream itself. `WriteInstructions` is offered, not
   imposed.
