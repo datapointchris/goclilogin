@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 
 	"golang.org/x/oauth2"
@@ -94,12 +95,16 @@ const (
 	// SessionLive means a usable access token was obtained.
 	SessionLive SessionState = "live"
 
-	// SessionRejected means the provider refused the refresh. Only an
-	// interactive login fixes it.
+	// SessionRejected means the provider stated that it refuses to issue a
+	// token. For a device-grant session that is a refused refresh, which only
+	// an interactive login fixes. For a client-credentials client it is the
+	// client's own request refused. The secret or the client's registration is
+	// what needs fixing there.
 	SessionRejected SessionState = "rejected"
 
-	// SessionUnverified means the provider could not be reached to ask, which
-	// proves nothing about the grant either way.
+	// SessionUnverified means no refusal was stated. The provider could not be
+	// reached, a proxy in front of it answered instead, or it answered with a
+	// 5xx or a 429. That proves nothing about the grant either way.
 	SessionUnverified SessionState = "unverified"
 )
 
@@ -119,10 +124,9 @@ func VerifySession(ctx context.Context, cfg Config, store *TokenStore) (SessionS
 	return ClassifySession(source.Token())
 }
 
-// ClassifySession reads the outcome of asking for a token. A refusal at the
-// token endpoint is the provider saying the grant is gone; every other error is
-// this machine failing to ask, which must not be reported as though it settled
-// anything.
+// ClassifySession reads the outcome of asking for a token. A refusal the
+// provider states is SessionRejected. Every other error is SessionUnverified,
+// because no answer about the grant came back.
 func ClassifySession(token *oauth2.Token, err error) (SessionState, *oauth2.Token) {
 	if err == nil {
 		return SessionLive, token
@@ -133,15 +137,27 @@ func ClassifySession(token *oauth2.Token, err error) (SessionState, *oauth2.Toke
 	return SessionUnverified, nil
 }
 
-// IsSessionRejected reports whether err is the provider refusing a refresh,
-// anywhere in its chain.
+// IsSessionRejected reports whether err, anywhere in its chain, is the provider
+// stating that it refuses to issue a token. x/oauth2 returns a RetrieveError
+// for every non-2xx answer, so the type alone proves nothing. A refusal is an
+// OAuth error code on any answer but a 5xx or a 429. Those two say the server
+// failed or is shedding load, so a code they carry is about the moment rather
+// than the grant. A proxy's 502 page carries no code at all.
 //
-// It is worth a helper because of where the refusal surfaces. A refresh happens
-// inside the transport of whichever request triggered it, so the failure
-// reaches a command as that request's error — carrying a URL and a raw OAuth
-// description, and naming nothing the user can do. Callers use this to print
-// the one command that changes the situation.
+// RFC 6749 §5.2 puts a refusal on a 400 or 401. x/oauth2 also accepts one on a
+// 200, which some providers send. So the status is checked for failure rather
+// than matched against those two.
+//
+// A refresh happens inside the transport of whichever request triggered it, so
+// a refusal reaches a command as that request's error. That error carries a URL
+// and a raw OAuth description, and names nothing the user can do. Callers use
+// this to tell the user what fixes it: a new login for a device-grant session,
+// or the secret or the client's registration for a client-credentials one.
 func IsSessionRejected(err error) bool {
 	var retrieveErr *oauth2.RetrieveError
-	return errors.As(err, &retrieveErr)
+	if !errors.As(err, &retrieveErr) || retrieveErr.ErrorCode == "" || retrieveErr.Response == nil {
+		return false
+	}
+	status := retrieveErr.Response.StatusCode
+	return status < http.StatusInternalServerError && status != http.StatusTooManyRequests
 }

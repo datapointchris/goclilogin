@@ -17,7 +17,8 @@ import (
 var DefaultScopes = []string{"openid", "profile", "offline_access"}
 
 // Config is one CLI's view of one deployment. Every field except Scopes and
-// LockDir is required; those two have documented defaults.
+// StateDir is required; those two have documented defaults. A service with no
+// person present authenticates as a ServiceClient instead.
 type Config struct {
 	// Issuer is the OIDC provider's base URL. Discovery hangs off it.
 	Issuer string
