@@ -44,7 +44,7 @@ linters:
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-# gofumpt is deliberately absent, and enforced by the go-fumpt-repo hook
+# gofumpt is deliberately absent, and enforced by the gofumpt hook
 # instead. golangci's copy has no module path, so it reads a module named
 # without a dot as stdlib and merges the local imports into the standard block.
 # Real gofumpt resolves the path from go.mod and splits them back out, so the two

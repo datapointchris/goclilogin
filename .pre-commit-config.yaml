@@ -1,4 +1,4 @@
-# forge-toolchain: 37
+# forge-toolchain: 38
 fail_fast: true
 default_stages: [pre-commit]
 repos:
@@ -208,14 +208,47 @@ repos:
       - id: refcheck
         args: [--moves]
 
+# generated:go-format-and-lint - Go formatting and lint, at the release CI installs
+  # pre-commit installs each tool into an environment of its own, from the
+  # module and version below, which is the release generated CI installs. A hook
+  # running the copy on PATH passes or fails by what that machine last
+  # installed, and gofumpt writes, so two releases rewrite each other's output.
+  #
+  # One pair per declared Go directory, each run over its whole module from
+  # inside it, as CI runs them. A gofumpt fed only the staged files passes a
+  # commit that CI then fails on a file nobody touched, after any pin raise
+  # adding a rule. golangci-lint loads packages from the go.mod it starts
+  # beside. Filenames are never passed, so files only decides when they fire.
+  - repo: local
+    hooks:
+      - id: gofumpt
+        name: gofumpt
+        entry: bash -c 'cd . && exec gofumpt -l -w .'
+        language: golang
+        additional_dependencies:
+          - mvdan.cc/gofumpt@v0.12.0
+        pass_filenames: false
+        types: [go]
+        files: '^'
+
+      # --allow-parallel-runners, because golangci-lint locks a cache under
+      # $HOME, and two worktrees committing at once would meet on it.
+      - id: golangci-lint
+        name: golangci-lint
+        entry: bash -c 'cd . && exec golangci-lint run --allow-parallel-runners'
+        language: golang
+        additional_dependencies:
+          - github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
+        pass_filenames: false
+        types: [go]
+        files: '^'
+
 # generated:go - Go
   # Every -repo- hook runs in each go.mod it finds, so a repo holding api/ and
   # cli/ needs no hook per module.
   - repo: https://github.com/tekwizely/pre-commit-golang
     rev: v1.0.0-rc.1
     hooks:
-      - id: go-fumpt-repo
-        args: [-w]
       - id: go-vet-repo-mod
       - id: go-build-repo-mod
       - id: go-mod-tidy-repo
@@ -223,7 +256,6 @@ repos:
         # A commit gate runs the fast tests; CI runs everything. Without this a
         # repo with DB integration tests has to keep a hook of its own.
         args: [-short]
-      - id: golangci-lint-repo-mod
 
 # generated:github-actions - GitHub Actions
   - repo: https://github.com/rhysd/actionlint
