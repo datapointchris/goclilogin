@@ -3,12 +3,18 @@ version: "2"
 run:
   modules-download-mode: readonly
 linters:
+  # A linter joins by name after the sweep that makes every Go module pass it,
+  # never as a preset. The last four catch a defect rather than a style.
   enable:
     - gocritic
     - misspell
     - nakedret
     - unconvert
     - wastedassign
+    - durationcheck # two time.Durations multiplied together
+    - nolintlint # a //nolint naming no linter, or one that no longer fires
+    - rowserrcheck # sql.Rows iterated with its Err never read
+    - sqlclosecheck # sql.Rows or sql.Stmt closed other than by defer
   settings:
     errcheck:
       check-type-assertions: false
