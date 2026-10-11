@@ -5,6 +5,7 @@ go 1.26.5
 toolchain go1.26.9
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/gofrs/flock v0.13.0
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/oauth2 v0.36.0

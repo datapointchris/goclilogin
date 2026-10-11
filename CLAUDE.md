@@ -14,6 +14,7 @@ automatically right. `go list -m all` from a consumer names them.
 | --- | --- |
 | `doc.go` | Package doc: why the device grant, why refresh is serialized |
 | `config.go` | `Config`, `DefaultScopes`, `ClientID`, `StateDir` |
+| `deployment.go` | The config file: `LoadDeployment`, `DeploymentForLogin` with RFC 9728 discovery, `Save`, `WriteDeployment` |
 | `login.go` | Discovery, the device grant, `DevicePrompt`, `WriteInstructions` |
 | `store.go` | `TokenStore` over both backends, `Backend`, `ErrNotLoggedIn` |
 | `filestore.go` | The mode-600 fallback for hosts with no keyring |
@@ -67,8 +68,28 @@ automatically right. `go list -m all` from a consumer names them.
 - **`ClientCredentialsTokenSource` persists nothing and reads no environment.**
   Its tokens live in process memory and are requested again once expired, so a
   service's token never outlives the run that fetched it. The secret is an
-  argument because the consumers already resolve their client id through their
-  own config layers. A second resolver here could disagree with them.
+  argument and never a config key, because the config file is not a secret
+  store.
+- **A CLI's deployment is one file, and only login writes it.**
+  `LoadDeployment` reads `--api` and `$XDG_CONFIG_HOME/<product>/config.toml`
+  and nothing else. It reads no environment variable and holds no compiled-in
+  address. A second source is a second place a value can come from unseen.
+  `DeploymentForLogin` fills only what the file lacks and refuses a typed value
+  that differs from it. `Save` adds missing keys at the top and never rewrites
+  one, because a config manager may render the file and stays its authority.
+- **A token goes only to an API that names its issuer.** An `--api` differing
+  from the file's must list the file's issuer in its RFC 9728 metadata, or
+  `LoadDeployment` refuses before any request carries a token. The flag stays
+  usable for a development API trusting the same login server.
+- **`Save` never writes through a symlink.** A link means a config manager owns
+  the file, and its source may be shared by every machine. A client id written
+  there becomes every machine's, which ends one client per machine. The refusal
+  carries the lines to add to the source.
+- **A login waiting for approval outlives a rate limit.** x/oauth2's poll
+  returns on every answer but `authorization_pending` and `slow_down`, so
+  `pollForApproval` polls through a client that turns a 429 or
+  `temporarily_unavailable` into `slow_down`. Without it, a rate limit on the
+  token endpoint ends a login the user is still approving.
 - **Presentation stays with the caller.** `Login` takes a `func(DevicePrompt)`;
   it never writes to a stream itself. `WriteInstructions` is offered, not
   imposed.
@@ -80,10 +101,17 @@ automatically right. `go list -m all` from a consumer names them.
 - **No state directory means the store refuses rather than improvising.** There
   is then no private place for a secret, and dropping one into a shared temp
   directory is worse than failing.
-- **The dependency list is three and each earns its place**: `x/oauth2` for the
-  protocol, `go-keyring` for the OS keychain, `gofrs/flock` for cross-platform
-  locking. This is the credential path, so an addition here is weighed against
-  `standards/dependencies.md` rather than waved through.
+- **Each dependency earns its place**: `x/oauth2` for the protocol,
+  `go-keyring` for the OS keychain, `gofrs/flock` for cross-platform locking,
+  `BurntSushi/toml` for the config file. This is the credential path, so an
+  addition here is weighed against `standards/dependencies.md` rather than
+  waved through.
+- **`BurntSushi/toml` reaches only the bytes handed to `toml.Decode` and
+  `toml.Marshal`.** It has no network code and no dependencies of its own. It
+  gives a correct parser for a file people edit by hand, where a hand-rolled
+  subset would reject valid TOML such as a literal string. If it egressed, the
+  most it holds is three public addresses and a client name — never a token or
+  a secret.
 - **Linux, macOS and Windows all build.** `gofrs/flock` is what buys Windows;
   a hand-rolled `unix.Flock` would not. Check with `GOOS=windows go build ./...`
   before claiming otherwise.

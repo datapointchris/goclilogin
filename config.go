@@ -17,15 +17,16 @@ import (
 var DefaultScopes = []string{"openid", "profile", "offline_access"}
 
 // Config is one CLI's view of one deployment. Every field except Scopes and
-// StateDir is required; those two have documented defaults. A service with no
-// person present authenticates as a ServiceClient instead.
+// StateDir is required; those two have documented defaults. Issuer and
+// ClientID come from the product's config file, through LoadDeployment. A
+// service with no person present authenticates as a ServiceClient instead.
 type Config struct {
 	// Issuer is the OIDC provider's base URL. Discovery hangs off it.
 	Issuer string
 
 	// ClientID identifies this (product × machine) pair to the provider. One
 	// client per machine keeps a token revocable on both axes, and ClientID
-	// derives the conventional spelling.
+	// derives the conventional spelling login writes to a file that has none.
 	ClientID string
 
 	// KeyringService namespaces this product's entries in the OS keychain.
@@ -66,12 +67,21 @@ func (c Config) stateDir() string {
 // "icb-cli-archlinux". A machine whose hostname differs from its logical name
 // overrides the result rather than relying on it.
 func ClientID(product string) string {
-	host, err := os.Hostname()
-	if err != nil || host == "" {
+	host := shortHostname()
+	if host == "" {
 		return product + "-cli"
 	}
-	short := strings.ToLower(strings.SplitN(host, ".", 2)[0])
-	return product + "-cli-" + short
+	return product + "-cli-" + host
+}
+
+// shortHostname is the hostname's first label, lowercased, or "" where the OS
+// reports none.
+func shortHostname() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		return ""
+	}
+	return strings.ToLower(strings.SplitN(host, ".", 2)[0])
 }
 
 // StateDir resolves a tool's own XDG state directory — $XDG_STATE_HOME/<name>,
