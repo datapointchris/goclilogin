@@ -62,7 +62,7 @@ theme = "dark"
 color = true
 `)
 
-	got, err := LoadDeployment("myapp", "")
+	got, err := LoadDeployment(t.Context(), "myapp", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,13 +76,35 @@ color = true
 		t.Errorf("from the file:\n got %+v\nwant %+v", got, want)
 	}
 
-	got, err = LoadDeployment("myapp", "https://staging.example.com/")
+	staging := serveMetadata(t, func(base string) *protectedResourceMetadata {
+		return &protectedResourceMetadata{Resource: base, AuthorizationServers: []string{"https://auth.example.com"}}
+	})
+	got, err = LoadDeployment(t.Context(), "myapp", staging.URL+"/")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want.API = Setting{Value: "https://staging.example.com", Source: SourceCommandLine}
+	want.API = Setting{Value: staging.URL, Source: SourceCommandLine}
 	if got != want {
 		t.Errorf("with --api:\n got %+v\nwant %+v", got, want)
+	}
+}
+
+// A command run with --api naming a host other than the file's would send that
+// host a token the file's issuer signed. A host trusting another login server
+// is refused before any token goes to it.
+func TestLoadDeployment_RefusesAnAPIFlagTrustingAnotherLoginServer(t *testing.T) {
+	configHome(t)
+	writeConfig(t, "myapp", `api = "https://myapp.example.com"
+issuer = "https://auth.example.com"
+client_id = "myapp-cli-workstation"
+`)
+	elsewhere := serveMetadata(t, func(base string) *protectedResourceMetadata {
+		return &protectedResourceMetadata{Resource: base, AuthorizationServers: []string{"https://auth.elsewhere.example.com"}}
+	})
+
+	_, err := LoadDeployment(t.Context(), "myapp", elsewhere.URL)
+	if err == nil || !strings.Contains(err.Error(), "no token is sent to it") {
+		t.Errorf("err = %v, want a refusal naming the other login server", err)
 	}
 }
 
@@ -108,7 +130,7 @@ func TestLoadDeployment_AMissingValueNamesTheLoginCommand(t *testing.T) {
 				writeConfig(t, "myapp", tt.file)
 			}
 
-			got, err := LoadDeployment("myapp", "")
+			got, err := LoadDeployment(t.Context(), "myapp", "")
 			if !errors.Is(err, ErrNotConfigured) {
 				t.Fatalf("err = %v, want ErrNotConfigured", err)
 			}
@@ -151,7 +173,7 @@ func TestDeploymentForLogin_FillsABareFileThatSaveThenServes(t *testing.T) {
 	if err := got.Save(); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := LoadDeployment("myapp", "")
+	loaded, err := LoadDeployment(t.Context(), "myapp", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,16 +294,34 @@ func TestDeploymentForLogin_RefusesMetadataItCannotTrust(t *testing.T) {
 	}
 }
 
-func TestProtectedResourceMetadataURL_GoesBetweenTheHostAndThePath(t *testing.T) {
-	tests := map[string]string{
-		"https://api.example.com":   "https://api.example.com/.well-known/oauth-protected-resource",
-		"https://example.com/myapp": "https://example.com/.well-known/oauth-protected-resource/myapp",
-	}
-	for resource, want := range tests {
-		got, err := protectedResourceMetadataURL(resource)
-		if err != nil || got != want {
-			t.Errorf("protectedResourceMetadataURL(%q) = %q, %v; want %q", resource, got, err, want)
+// RFC 9728 § 3.1 puts the well-known suffix between the host and the path, so
+// an API served under a path is found at a URL that does not start with its own.
+func TestDeploymentForLogin_DiscoversAnAPIServedUnderAPath(t *testing.T) {
+	configHome(t)
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/.well-known/oauth-protected-resource/myapp" {
+			http.NotFound(w, r)
+			return
 		}
+		_ = json.NewEncoder(w).Encode(protectedResourceMetadata{
+			Resource:             server.URL + "/myapp",
+			AuthorizationServers: []string{"https://auth.example.com"},
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	got, err := DeploymentForLogin(t.Context(), "myapp", server.URL+"/myapp", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Setting{
+		Value:  "https://auth.example.com",
+		Source: SourceDiscovered,
+		From:   server.URL + "/.well-known/oauth-protected-resource/myapp",
+	}
+	if got.Issuer != want {
+		t.Errorf("issuer = %+v, want %+v", got.Issuer, want)
 	}
 }
 
@@ -331,19 +371,23 @@ color = true
 	}
 }
 
-// A config manager that links the file in from its own tree keeps managing it
-// after a login writes to it.
-func TestSave_WritesThroughASymlink(t *testing.T) {
+// A config.toml deployed as a symlink into a config manager's tree has a source
+// every machine it manages may share. Writing this machine's client id there
+// would make it every machine's, so Save hands back the lines instead.
+func TestSave_RefusesAConfigFileLinkedFromAConfigManager(t *testing.T) {
 	configHome(t)
-	target := filepath.Join(t.TempDir(), "rendered.toml")
-	if err := os.WriteFile(target, []byte("theme = \"dark\"\n"), 0o644); err != nil {
+	source := filepath.Join(t.TempDir(), "shared-tree", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("theme = \"dark\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	link := ConfigPath("myapp")
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, link); err != nil {
+	if err := os.Symlink(source, link); err != nil {
 		t.Fatal(err)
 	}
 
@@ -353,16 +397,12 @@ func TestSave_WritesThroughASymlink(t *testing.T) {
 		Issuer:   Setting{Value: "https://auth.example.com", Source: SourceDiscovered},
 		ClientID: Setting{Value: "myapp-cli-workstation", Source: SourceHostname},
 	}
-	if err := d.Save(); err != nil {
-		t.Fatal(err)
+	err := d.Save()
+	if err == nil || !strings.Contains(err.Error(), `client_id = "myapp-cli-workstation"`) {
+		t.Errorf("err = %v, want a refusal carrying the lines to add", err)
 	}
-
-	info, err := os.Lstat(link)
-	if err != nil || info.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("the config file is no longer a symlink: %v, %v", info, err)
-	}
-	if _, err := LoadDeployment("myapp", ""); err != nil {
-		t.Errorf("reading through the link after Save: %v", err)
+	if content, _ := os.ReadFile(source); string(content) != "theme = \"dark\"\n" {
+		t.Errorf("Save wrote into the linked source:\n%s", content)
 	}
 }
 

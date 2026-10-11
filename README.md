@@ -30,7 +30,7 @@ if err == nil {
 }
 
 // Then every later command reads the file, and --api outranks it.
-deployment, err = goclilogin.LoadDeployment("myapp", apiFlag)
+deployment, err = goclilogin.LoadDeployment(ctx, "myapp", apiFlag)
 // ...the same cfg and store, built from it, then:
 source, err := goclilogin.TokenSource(ctx, cfg, store)
 client := oauth2.NewClient(ctx, source)   // injects and renews the bearer token
@@ -75,10 +75,21 @@ compiled-in address. An address compiled into a binary points every copy of it
 at one deployment, a stranger's included. An environment variable is a second
 place a value can come from, and a stale export gives no sign it is there.
 
+**An `--api` that differs from the file's is checked, not trusted.** Every
+request to it carries a token the file's issuer signed. So its RFC 9728 metadata
+must name that issuer among its authorization servers, or the command is refused
+before any token is sent. A local development API trusting the same login server
+passes. One trusting another login server, or serving no metadata, does not.
+
 **Nothing is derived after login.** Every command reads the file and nothing
 else. Nothing is discovered at run time, and nothing is cached anywhere else. So
 what the file says is what the CLI does, and a status command printing the file
-has printed the whole answer.
+has printed the whole answer. The `--api` check above reads metadata only to
+refuse, and keeps none of it.
+
+A key set to `""` is an error naming the file. TOML counts it as defined, so a
+login filling it in would write a second definition, and no TOML reader accepts
+that.
 
 **`DeploymentForLogin` fills in only what the file lacks.**
 
@@ -102,8 +113,12 @@ status command prints the same thing, the config file's path included.
 `Deployment.Save` writes the filled-in values only once the device grant
 succeeds. A login refused for an unregistered client therefore leaves nothing
 behind for every later command to read. `Save` adds only the keys still missing,
-at the top of the file, and keeps everything already there, comments included. A
-config file that is a symlink is written through, and the link stays.
+at the top of the file, and keeps everything already there, comments included.
+
+`Save` refuses a config file reached through a symlink, and its error carries the
+lines to add. A link means a config manager owns the file, and its source may be
+shared by every machine it manages. A client id written through the link would
+become every machine's, so one revocation would log them all out.
 
 ## Why the refresh is serialized
 
@@ -183,7 +198,7 @@ using the client-credentials grant (RFC 6749 §4.4) is the service's own identit
 instead:
 
 ```go
-deployment, err := goclilogin.LoadDeployment("myapp", apiFlag)
+deployment, err := goclilogin.LoadDeployment(ctx, "myapp", apiFlag)
 secret := os.Getenv("MYAPP_CLIENT_SECRET") // wherever the caller keeps it
 source, err := goclilogin.ClientCredentialsTokenSource(ctx, goclilogin.ServiceClient{
     Issuer:   deployment.Issuer.Value,

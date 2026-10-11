@@ -95,12 +95,17 @@ func ConfigPath(product string) string {
 // LoadDeployment reads the deployment every command of a product CLI talks to.
 // api is the --api flag's value, and outranks the file's when it is not empty.
 //
-// Nothing else is consulted: no environment variable, no compiled-in address,
-// and nothing fetched over the network. A value the file lacks is
-// ErrNotConfigured, wrapped with the `<product> auth login <url>` command that
-// fills it in. The Deployment returned beside that error still carries Path and
-// whatever the file did set, so a status command can show what is missing.
-func LoadDeployment(product, api string) (Deployment, error) {
+// Nothing else is consulted: no environment variable and no compiled-in
+// address. A value the file lacks is ErrNotConfigured, wrapped with the
+// `<product> auth login <url>` command that fills it in. The Deployment
+// returned beside that error still carries Path and whatever the file did set,
+// so a status command can show what is missing.
+//
+// An api that differs from the file's is checked rather than trusted, because
+// every request to it carries a token the file's issuer signed. Its RFC 9728
+// metadata must name that issuer among its authorization servers, or the
+// command is refused before any token is sent. Nothing the check reads is kept.
+func LoadDeployment(ctx context.Context, product, api string) (Deployment, error) {
 	path := ConfigPath(product)
 	file, err := readConfigFile(path)
 	if err != nil {
@@ -133,7 +138,37 @@ func LoadDeployment(product, api string) (Deployment, error) {
 	if d.API.Value, err = normalizeAPI(d.API.Value); err != nil {
 		return d, describeAPIError(err, d.API)
 	}
+	if d.API.Source == SourceCommandLine {
+		fileAPI, _ := normalizeAPI(file.API)
+		if d.API.Value != fileAPI {
+			if err := requireTrustedIssuer(ctx, d.API.Value, d.Issuer.Value, path); err != nil {
+				return d, err
+			}
+		}
+	}
 	return d, nil
+}
+
+// requireTrustedIssuer refuses an API whose RFC 9728 metadata does not name
+// issuer among its authorization servers. A token issuer signed is sent with
+// every request to that API, so an API trusting another login server would
+// receive a token it cannot use and could replay.
+func requireTrustedIssuer(ctx context.Context, resource, issuer, path string) error {
+	meta, metadataURL, err := readProtectedResourceMetadata(ctx, resource)
+	if err != nil {
+		return fmt.Errorf("check --api %s before sending it a token: %w", resource, err)
+	}
+	for _, server := range meta.AuthorizationServers {
+		if server == issuer {
+			return nil
+		}
+	}
+	named := "no login server"
+	if len(meta.AuthorizationServers) > 0 {
+		named = strings.Join(meta.AuthorizationServers, ", ") + " as its login server"
+	}
+	return fmt.Errorf("%s names %s, not %s from %s; no token is sent to it",
+		metadataURL, named, issuer, path)
 }
 
 // DeploymentForLogin resolves the deployment a login authenticates against. It
@@ -217,17 +252,17 @@ func DeploymentForLogin(ctx context.Context, product, api, clientID string) (Dep
 // Nothing already in the file is rewritten. The file is read again first, so
 // a key written while the login waited for approval is kept rather than
 // duplicated. The keys still missing go at the top of the file, where TOML
-// reads them as top-level keys whatever tables follow. A config file that is a
-// symlink is written through, and the link stays in place.
+// reads them as top-level keys whatever tables follow.
+//
+// A config file reached through a symlink is refused, and the error carries the
+// lines to add to its source. A link means a config manager owns the file, and
+// its source may be shared by every machine it manages. A client id written
+// through it would become every machine's client id.
 func (d Deployment) Save() error {
 	if d.Path == "" {
 		return errors.New("no config file to save to: neither XDG_CONFIG_HOME nor a home directory is set")
 	}
-	target := d.Path
-	if resolved, err := filepath.EvalSymlinks(d.Path); err == nil {
-		target = resolved
-	}
-	current, err := readConfigFile(target)
+	current, err := readConfigFile(d.Path)
 	if err != nil {
 		return err
 	}
@@ -250,7 +285,11 @@ func (d Deployment) Save() error {
 	if err != nil {
 		return err
 	}
-	existing, err := os.ReadFile(target)
+	if link := symlinkOnPath(d.Path); link != "" {
+		return fmt.Errorf("%s is a symlink, so whatever manages it owns %s and login does not write through it; add these lines to its source:\n%s",
+			link, d.Path, keys)
+	}
+	existing, err := os.ReadFile(d.Path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
@@ -258,7 +297,18 @@ func (d Deployment) Save() error {
 	if len(existing) > 0 {
 		content = append(append(keys, '\n'), existing...)
 	}
-	return writeFileAtomically(target, content)
+	return writeFileAtomically(d.Path, content)
+}
+
+// symlinkOnPath returns the config file or the product directory holding it,
+// whichever is a symlink, or "" where neither is.
+func symlinkOnPath(path string) string {
+	for _, candidate := range []string{path, filepath.Dir(path)} {
+		if info, err := os.Lstat(candidate); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // WriteDeployment is the conventional rendering of a Deployment: each value,
@@ -311,6 +361,10 @@ func fromFile(value, path string) Setting {
 
 // readConfigFile reads the keys this package owns. A file that does not exist
 // holds none of them, which is not an error.
+//
+// A key set to "" is refused rather than read as absent. TOML counts it as
+// defined, so a login filling it in would write a second definition, and no
+// TOML reader accepts a file holding two.
 func readConfigFile(path string) (configFile, error) {
 	var file configFile
 	if path == "" {
@@ -323,8 +377,17 @@ func readConfigFile(path string) (configFile, error) {
 	if err != nil {
 		return file, err
 	}
-	if err := toml.Unmarshal(data, &file); err != nil {
+	meta, err := toml.Decode(string(data), &file)
+	if err != nil {
 		return file, fmt.Errorf("read %s: %w", path, err)
+	}
+	for _, key := range []struct{ name, value string }{
+		{"api", file.API}, {"issuer", file.Issuer}, {"client_id", file.ClientID},
+	} {
+		if key.value == "" && meta.IsDefined(key.name) {
+			return file, fmt.Errorf("%s sets %s to an empty value; give it one, or delete the line for login to fill in",
+				path, key.name)
+		}
 	}
 	return file, nil
 }
@@ -360,35 +423,44 @@ func protectedResourceMetadataURL(resource string) (string, error) {
 	return u.String(), nil
 }
 
+// readProtectedResourceMetadata fetches an API's RFC 9728 protected-resource
+// metadata and returns it with the URL it was read from. A document describing
+// another resource is refused, as § 3.3 requires.
+func readProtectedResourceMetadata(ctx context.Context, resource string) (protectedResourceMetadata, string, error) {
+	var meta protectedResourceMetadata
+	metadataURL, err := protectedResourceMetadataURL(resource)
+	if err != nil {
+		return meta, "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
+	if err != nil {
+		return meta, "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return meta, "", fmt.Errorf("reach the API at %s: %w", metadataURL, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return meta, "", fmt.Errorf("%s returned %s, so the API names no login server", metadataURL, resp.Status)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+		return meta, "", fmt.Errorf("read %s: %w", metadataURL, err)
+	}
+	if meta.Resource != resource {
+		return meta, "", fmt.Errorf("%s describes %q rather than %q, so it is refused (RFC 9728 § 3.3)",
+			metadataURL, meta.Resource, resource)
+	}
+	return meta, metadataURL, nil
+}
+
 // discoverAuthorizationServer reads the issuer an API trusts from its RFC 9728
 // protected-resource metadata. It returns the issuer and the URL it read it
 // from. path is the config file named in an error the user fixes there.
 func discoverAuthorizationServer(ctx context.Context, resource, path string) (string, string, error) {
-	metadataURL, err := protectedResourceMetadataURL(resource)
+	meta, metadataURL, err := readProtectedResourceMetadata(ctx, resource)
 	if err != nil {
-		return "", "", err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
-	if err != nil {
-		return "", "", err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", "", fmt.Errorf("reach the API at %s: %w", metadataURL, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("%s returned %s, so the API names no login server; set issuer in %s",
-			metadataURL, resp.Status, path)
-	}
-
-	var meta protectedResourceMetadata
-	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
-		return "", "", fmt.Errorf("read %s: %w", metadataURL, err)
-	}
-	if meta.Resource != resource {
-		return "", "", fmt.Errorf("%s describes %q rather than %q, so it is refused (RFC 9728 § 3.3)",
-			metadataURL, meta.Resource, resource)
+		return "", "", fmt.Errorf("%w; setting issuer in %s skips this lookup", err, path)
 	}
 	switch len(meta.AuthorizationServers) {
 	case 0:
