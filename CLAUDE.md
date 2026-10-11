@@ -81,10 +81,12 @@ automatically right. `go list -m all` from a consumer names them.
   from the file's must list the file's issuer in its RFC 9728 metadata, or
   `LoadDeployment` refuses before any request carries a token. The flag stays
   usable for a development API trusting the same login server.
-- **`Save` never writes through a symlink.** A link means a config manager owns
+- **Login never writes through a symlink.** A link means a config manager owns
   the file, and its source may be shared by every machine. A client id written
-  there becomes every machine's, which ends one client per machine. The refusal
-  carries the lines to add to the source.
+  there becomes every machine's, which ends one client per machine.
+  `DeploymentForLogin` refuses the link before the grant whenever `Save` would
+  write, and the refusal offers `api` and `issuer` as lines for the source but
+  never `client_id`.
 - **A login waiting for approval outlives a rate limit.** x/oauth2's poll
   returns on every answer but `authorization_pending` and `slow_down`, so
   `pollForApproval` polls through a client that turns a 429 or

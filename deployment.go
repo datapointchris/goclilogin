@@ -183,9 +183,11 @@ func requireTrustedIssuer(ctx context.Context, resource, issuer, path string) er
 //     ClientID(product).
 //
 // A value the user typed that differs from the file's is refused, naming the
-// file to edit, because login never rewrites what the file says. Print the
-// result before the device grant starts, so the login server is on screen
-// before anything is sent to it, and Save it once the grant succeeds.
+// file to edit, because login never rewrites what the file says. A file reached
+// through a symlink is refused whenever Save would write to it, so the refusal
+// comes before the user approves a grant rather than after. Print the result
+// before the device grant starts, so the login server is on screen before
+// anything is sent to it, and Save it once the grant succeeds.
 func DeploymentForLogin(ctx context.Context, product, api, clientID string) (Deployment, error) {
 	path := ConfigPath(product)
 	file, err := readConfigFile(path)
@@ -243,6 +245,12 @@ func DeploymentForLogin(ctx context.Context, product, api, clientID string) (Dep
 	default:
 		d.ClientID = Setting{Value: ClientID(product), Source: SourceHostname, From: shortHostname()}
 	}
+
+	if missing := d.unsaved(file); missing != (configFile{}) {
+		if link := symlinkOnPath(path); link != "" {
+			return Deployment{}, refuseLink(link, path, missing)
+		}
+	}
 	return d, nil
 }
 
@@ -254,10 +262,9 @@ func DeploymentForLogin(ctx context.Context, product, api, clientID string) (Dep
 // duplicated. The keys still missing go at the top of the file, where TOML
 // reads them as top-level keys whatever tables follow.
 //
-// A config file reached through a symlink is refused, and the error carries the
-// lines to add to its source. A link means a config manager owns the file, and
-// its source may be shared by every machine it manages. A client id written
-// through it would become every machine's client id.
+// A config file reached through a symlink is refused, as DeploymentForLogin
+// refuses it before the grant. A link created while the login waited is the
+// case left for Save.
 func (d Deployment) Save() error {
 	if d.Path == "" {
 		return errors.New("no config file to save to: neither XDG_CONFIG_HOME nor a home directory is set")
@@ -266,28 +273,17 @@ func (d Deployment) Save() error {
 	if err != nil {
 		return err
 	}
-
-	var missing configFile
-	if current.API == "" && d.API.Source != SourceFile {
-		missing.API = d.API.Value
-	}
-	if current.Issuer == "" && d.Issuer.Source != SourceFile {
-		missing.Issuer = d.Issuer.Value
-	}
-	if current.ClientID == "" && d.ClientID.Source != SourceFile {
-		missing.ClientID = d.ClientID.Value
-	}
+	missing := d.unsaved(current)
 	if missing == (configFile{}) {
 		return nil
+	}
+	if link := symlinkOnPath(d.Path); link != "" {
+		return refuseLink(link, d.Path, missing)
 	}
 
 	keys, err := toml.Marshal(missing)
 	if err != nil {
 		return err
-	}
-	if link := symlinkOnPath(d.Path); link != "" {
-		return fmt.Errorf("%s is a symlink, so whatever manages it owns %s and login does not write through it; add these lines to its source:\n%s",
-			link, d.Path, keys)
 	}
 	existing, err := os.ReadFile(d.Path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -298,6 +294,42 @@ func (d Deployment) Save() error {
 		content = append(append(keys, '\n'), existing...)
 	}
 	return writeFileAtomically(d.Path, content)
+}
+
+// unsaved is what Save writes: each value current lacks that a layer other than
+// the config file supplied.
+func (d Deployment) unsaved(current configFile) configFile {
+	var missing configFile
+	if current.API == "" && d.API.Source != SourceFile {
+		missing.API = d.API.Value
+	}
+	if current.Issuer == "" && d.Issuer.Source != SourceFile {
+		missing.Issuer = d.Issuer.Value
+	}
+	if current.ClientID == "" && d.ClientID.Source != SourceFile {
+		missing.ClientID = d.ClientID.Value
+	}
+	return missing
+}
+
+// refuseLink is the refusal for a config file reached through link. A link means
+// a config manager owns the file, and its source may be shared by every machine
+// it manages. So the refusal offers api and issuer as lines for that source, and
+// never a client_id: one written there becomes every machine's client id.
+func refuseLink(link, path string, missing configFile) error {
+	refusal := fmt.Sprintf("%s is a symlink, so whatever manages it owns %s and login does not write through it", link, path)
+	if shared := (configFile{API: missing.API, Issuer: missing.Issuer}); shared != (configFile{}) {
+		lines, err := toml.Marshal(shared)
+		if err != nil {
+			return err
+		}
+		refusal += fmt.Sprintf("; add these lines to its source:\n%s", lines)
+	}
+	if missing.ClientID != "" {
+		refusal += fmt.Sprintf("\nIt sets no client_id. That names one machine, %s here, so set it where the manager writes each machine's own values, never in a source they share.",
+			missing.ClientID)
+	}
+	return errors.New(refusal)
 }
 
 // symlinkOnPath returns the config file or the product directory holding it,

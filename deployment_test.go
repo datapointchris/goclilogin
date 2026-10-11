@@ -371,25 +371,33 @@ color = true
 	}
 }
 
-// A config.toml deployed as a symlink into a config manager's tree has a source
-// every machine it manages may share. Writing this machine's client id there
-// would make it every machine's, so Save hands back the lines instead.
-func TestSave_RefusesAConfigFileLinkedFromAConfigManager(t *testing.T) {
+// linkConfig deploys myapp's config.toml as a symlink into a config manager's
+// tree holding content, and returns the link and its source.
+func linkConfig(t *testing.T, content string) (link, source string) {
+	t.Helper()
 	configHome(t)
-	source := filepath.Join(t.TempDir(), "shared-tree", "config.toml")
+	source = filepath.Join(t.TempDir(), "shared-tree", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(source, []byte("theme = \"dark\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(source, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	link := ConfigPath("myapp")
+	link = ConfigPath("myapp")
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(source, link); err != nil {
 		t.Fatal(err)
 	}
+	return link, source
+}
+
+// A config manager's source may be shared by every machine it manages, so a
+// client id written there becomes every machine's. The refusal offers the
+// shared keys as lines and never a client_id line.
+func TestSave_RefusesAConfigFileLinkedFromAConfigManager(t *testing.T) {
+	link, source := linkConfig(t, "theme = \"dark\"\n")
 
 	d := Deployment{
 		Path:     link,
@@ -398,11 +406,26 @@ func TestSave_RefusesAConfigFileLinkedFromAConfigManager(t *testing.T) {
 		ClientID: Setting{Value: "myapp-cli-workstation", Source: SourceHostname},
 	}
 	err := d.Save()
-	if err == nil || !strings.Contains(err.Error(), `client_id = "myapp-cli-workstation"`) {
-		t.Errorf("err = %v, want a refusal carrying the lines to add", err)
+	if err == nil || !strings.Contains(err.Error(), `api = "https://myapp.example.com"`) || strings.Contains(err.Error(), `client_id = `) {
+		t.Errorf("err = %v, want a refusal carrying the api line and no client_id line", err)
 	}
 	if content, _ := os.ReadFile(source); string(content) != "theme = \"dark\"\n" {
 		t.Errorf("Save wrote into the linked source:\n%s", content)
+	}
+}
+
+// Save refusing the link would come only after the user approved the grant.
+func TestDeploymentForLogin_RefusesALinkedFileSaveWouldWrite(t *testing.T) {
+	linkConfig(t, "api = \"https://myapp.example.com\"\nissuer = \"https://auth.example.com\"\n")
+
+	_, err := DeploymentForLogin(t.Context(), "myapp", "", "")
+	if err == nil || !strings.Contains(err.Error(), "symlink") || strings.Contains(err.Error(), `client_id = `) {
+		t.Errorf("err = %v, want the link refused with no client_id line", err)
+	}
+
+	linkConfig(t, "api = \"https://myapp.example.com\"\nissuer = \"https://auth.example.com\"\nclient_id = \"myapp-cli-workstation\"\n")
+	if _, err := DeploymentForLogin(t.Context(), "myapp", "", ""); err != nil {
+		t.Errorf("a linked file lacking nothing: err = %v, want it used as it is", err)
 	}
 }
 

@@ -115,10 +115,12 @@ succeeds. A login refused for an unregistered client therefore leaves nothing
 behind for every later command to read. `Save` adds only the keys still missing,
 at the top of the file, and keeps everything already there, comments included.
 
-`Save` refuses a config file reached through a symlink, and its error carries the
-lines to add. A link means a config manager owns the file, and its source may be
-shared by every machine it manages. A client id written through the link would
-become every machine's, so one revocation would log them all out.
+A config file reached through a symlink is refused before the grant, whenever
+`Save` would write to it. A link means a config manager owns the file, and its
+source may be shared by every machine it manages. A client id written there would
+become every machine's, so one revocation would log them all out. The refusal
+offers `api` and `issuer` as lines to add to the source, and says the client id
+belongs wherever the manager writes each machine's own values.
 
 ## Why the refresh is serialized
 
