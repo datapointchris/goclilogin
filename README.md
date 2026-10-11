@@ -6,14 +6,18 @@ The same tools run by a service, with no person to approve a login, use the
 client-credentials grant instead.
 
 ```go
+// `myapp auth login [url]`, once, interactively. It fills in whatever
+// ~/.config/myapp/config.toml lacks, and prints each value and where it came
+// from before anything is sent to the login server.
+deployment, err := goclilogin.DeploymentForLogin(ctx, "myapp", url, clientIDFlag)
+goclilogin.WriteDeployment(os.Stderr, deployment)
+
 cfg := goclilogin.Config{
-    Issuer:         "https://auth.example.com",
-    ClientID:       goclilogin.ClientID("myapp"), // myapp-cli-<hostname>
+    Issuer:         deployment.Issuer.Value,
+    ClientID:       deployment.ClientID.Value,
     KeyringService: "myapp-cli",
 }
 store := goclilogin.NewTokenStore(cfg)
-
-// Log in, once, interactively.
 token, err := goclilogin.Login(ctx, cfg, func(p goclilogin.DevicePrompt) {
     goclilogin.WriteInstructions(os.Stderr, cfg.ClientID, p)
     _ = browser.OpenURL(p.BrowserURL())
@@ -22,11 +26,15 @@ if err == nil {
     backend, err := store.Save(cfg.ClientID, token)
     // backend says where it went. Report a fall back to the file; a host with
     // no keyring stores the token in plaintext and the user should know.
+    err = deployment.Save() // writes only what the file lacked
 }
 
-// Then, on every later invocation.
+// Then every later command reads the file, and --api outranks it.
+deployment, err = goclilogin.LoadDeployment("myapp", apiFlag)
+// ...the same cfg and store, built from it, then:
 source, err := goclilogin.TokenSource(ctx, cfg, store)
 client := oauth2.NewClient(ctx, source)   // injects and renews the bearer token
+// and the requests go to deployment.API.Value.
 ```
 
 ## What this is, and what it is not
@@ -35,14 +43,67 @@ The OAuth protocol is `golang.org/x/oauth2`'s. The device authorization grant,
 the `authorization_pending` polling with its `slow_down` backoff, the refresh
 exchange, and the token model all come from there.
 
-What this package adds is the lifecycle around it: provider discovery,
-persistence in the OS keychain, and a refresh that survives several processes
-running at once. That last one is the reason the package exists.
+What this package adds is the lifecycle around it: the config file saying where
+the CLI is pointed, provider discovery, persistence in the OS keychain, and a
+refresh that survives several processes running at once. That last one is the
+reason the package exists.
 
 It is not a general OIDC client. There is no ID token verification, no
 back-channel logout, no DPoP. A CLI whose API verifies tokens server-side
 against the provider's JWKS does not need those, and one that does need them
 wants [zitadel/oidc](https://github.com/zitadel/oidc) instead.
+
+## One file says where the CLI is pointed
+
+A product CLI needs three values before it can do anything: the API's address,
+the login server that issues its tokens, and the client this machine logs in as.
+All three live in one file, `$XDG_CONFIG_HOME/<product>/config.toml`:
+
+```toml
+api = "https://api.example.com"
+issuer = "https://auth.example.com"
+client_id = "myapp-cli-workstation"
+```
+
+Any other key in that file is the product's own, and this package leaves it
+alone.
+
+**Every command calls `LoadDeployment`.** An explicit `--api` outranks the file,
+and that is the whole precedence. A value the file lacks is `ErrNotConfigured`,
+naming `<product> auth login <url>`. There is no environment variable and no
+compiled-in address. An address compiled into a binary points every copy of it
+at one deployment, a stranger's included. An environment variable is a second
+place a value can come from, and a stale export gives no sign it is there.
+
+**Nothing is derived after login.** Every command reads the file and nothing
+else. Nothing is discovered at run time, and nothing is cached anywhere else. So
+what the file says is what the CLI does, and a status command printing the file
+has printed the whole answer.
+
+**`DeploymentForLogin` fills in only what the file lacks.**
+
+- `api` is the URL given to login, where the file has none.
+- `issuer` comes from the API's [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728.html)
+  protected-resource metadata, at `<url>/.well-known/oauth-protected-resource`.
+  The document must name exactly one authorization server. It is refused unless
+  its `resource` is the URL it was fetched for (RFC 9728 § 3.3), so a document
+  served at one address cannot send a login to a provider describing another.
+- `client_id` is `--client-id` where given, otherwise `ClientID(product)`.
+
+A value the user types that differs from the file's is refused, naming the file
+to edit. Login never rewrites a value, because the file may be rendered by a
+config manager that remains its authority. A file that already holds all three
+is used as it is, with no request made.
+
+`WriteDeployment` prints each value beside where it came from. Print it before
+`Login`, so the login server is on screen before anything is sent to it. A
+status command prints the same thing, the config file's path included.
+
+`Deployment.Save` writes the filled-in values only once the device grant
+succeeds. A login refused for an unregistered client therefore leaves nothing
+behind for every later command to read. `Save` adds only the keys still missing,
+at the top of the file, and keeps everything already there, comments included. A
+config file that is a symlink is written through, and the link stays.
 
 ## Why the refresh is serialized
 
@@ -122,14 +183,18 @@ using the client-credentials grant (RFC 6749 §4.4) is the service's own identit
 instead:
 
 ```go
+deployment, err := goclilogin.LoadDeployment("myapp", apiFlag)
 secret := os.Getenv("MYAPP_CLIENT_SECRET") // wherever the caller keeps it
 source, err := goclilogin.ClientCredentialsTokenSource(ctx, goclilogin.ServiceClient{
-    Issuer:   "https://auth.example.com",
-    ClientID: "myapp-svc-scheduler", // a confidential client registered for the service
+    Issuer:   deployment.Issuer.Value,
+    ClientID: deployment.ClientID.Value, // myapp-svc-scheduler, from the config file
     Scopes:   []string{"myapp.items.read"},
 }, secret)
 client := oauth2.NewClient(ctx, source)
 ```
+
+A service's client id comes from its config file like any other client's. The
+secret never goes in that file, which is not a secret store.
 
 `myapp-svc-scheduler` is a confidential client registered at the provider for
 the service alone. It is never what `goclilogin.ClientID(product)` returns. That
@@ -172,12 +237,16 @@ secret or the client's registration, not a login.
 | `Scopes` | no | `openid`, `profile`, `offline_access` |
 | `StateDir` | no | `StateDir(KeyringService)` |
 
+`Issuer` and `ClientID` are the config file's `issuer` and `client_id`, read
+through `LoadDeployment`.
+
 `StateDir` holds the refresh lock and the fallback token file. Both are state
 this tool writes, so they live together.
 
 `ClientID(product)` spells the conventional per-machine id — `myapp` on a host
-reporting `archlinux.trusted` gives `myapp-cli-archlinux`. One client per
-machine keeps a token revocable on both axes.
+reporting `archlinux.trusted` gives `myapp-cli-archlinux`. Login writes it to a
+config file that names no client. One client per machine keeps a token
+revocable on both axes.
 
 `offline_access` is what yields the refresh token. A provider-specific
 authorization scope is deliberately not in the default: Authelia's
@@ -240,6 +309,9 @@ is whatever ACL the user's profile directory carries, not `0600`.
 consumer can test its own command wiring without writing to the real keychain.
 The keychain is shared machine state and a test must not touch it. Point
 `cfg.StateDir` at a `t.TempDir()` so the fallback file lands there too.
+
+`LoadDeployment` reads `$XDG_CONFIG_HOME`, so `t.Setenv("XDG_CONFIG_HOME",
+t.TempDir())` gives a test a config file of its own.
 
 ## Platforms
 

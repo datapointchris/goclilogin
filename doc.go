@@ -4,8 +4,19 @@
 // The OAuth protocol itself is golang.org/x/oauth2's: the device authorization
 // grant, the authorization_pending polling with its slow_down backoff, the
 // refresh exchange, and the token model all come from there. What this package
-// adds is the lifecycle around it — provider discovery, persistence in the OS
-// keychain, and a refresh that is safe when several processes run at once.
+// adds is the lifecycle around it — the config file saying where the CLI is
+// pointed, provider discovery, persistence in the OS keychain, and a refresh
+// that is safe when several processes run at once.
+//
+// # Where the CLI is pointed
+//
+// A product's config file, $XDG_CONFIG_HOME/<product>/config.toml, holds the
+// API's address, the issuer and the client id. LoadDeployment reads it on every
+// command, with an explicit --api outranking it, and consults nothing else: no
+// environment variable, no compiled-in address, nothing fetched. Login is the
+// only writer. DeploymentForLogin fills in what the file lacks, the issuer from
+// the API's RFC 9728 protected-resource metadata, and Deployment.Save adds
+// those keys without rewriting any the file already holds.
 //
 // # Why the device grant
 //
