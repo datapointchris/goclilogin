@@ -1,6 +1,7 @@
 package goclilogin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -116,11 +117,77 @@ func Login(ctx context.Context, cfg Config, show func(DevicePrompt)) (*oauth2.To
 		})
 	}
 
-	token, err := oauthCfg.DeviceAccessToken(ctx, deviceAuth)
+	token, err := pollForApproval(ctx, oauthCfg, deviceAuth)
 	if err != nil {
 		return nil, fmt.Errorf("waiting for approval: %w", err)
 	}
 	return token, nil
+}
+
+// pollForApproval polls the token endpoint until the device code is approved,
+// refused or expired. The polling is x/oauth2's. That loop keeps going only on
+// authorization_pending and slow_down, and returns on any other answer. So the
+// HTTP client it polls through turns an answer asking it to wait into slow_down.
+func pollForApproval(ctx context.Context, cfg *oauth2.Config, da *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+	base, _ := ctx.Value(oauth2.HTTPClient).(*http.Client)
+	if base == nil {
+		base = http.DefaultClient
+	}
+	client := *base
+	next := client.Transport
+	if next == nil {
+		next = http.DefaultTransport
+	}
+	client.Transport = backOffAsSlowDown{next: next}
+	return cfg.DeviceAccessToken(context.WithValue(ctx, oauth2.HTTPClient, &client), da)
+}
+
+// backOffAsSlowDown rewrites a token-endpoint answer that asks the client to
+// wait into RFC 8628's slow_down. Two answers ask that besides slow_down: an
+// HTTP 429 from whatever rate-limits the endpoint, and the OAuth error
+// temporarily_unavailable, which Authelia sends when it rate-limits the endpoint
+// itself. Either one would otherwise end a login still waiting for approval.
+// Rewritten, each adds five seconds to the poll interval for this and every
+// later poll (RFC 8628 § 3.5), and the poll continues until the device code
+// expires.
+type backOffAsSlowDown struct {
+	next http.RoundTripper
+}
+
+func (t backOffAsSlowDown) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.next.RoundTrip(req)
+	if err != nil || resp.StatusCode < 300 {
+		return resp, err
+	}
+	asksToWait := resp.StatusCode == http.StatusTooManyRequests
+	if !asksToWait {
+		data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		_ = resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		resp.Body = io.NopCloser(bytes.NewReader(data))
+		var answer struct {
+			Error string `json:"error"`
+		}
+		asksToWait = json.Unmarshal(data, &answer) == nil && answer.Error == "temporarily_unavailable"
+	}
+	if !asksToWait {
+		return resp, nil
+	}
+	_ = resp.Body.Close()
+	const slowDown = `{"error":"slow_down"}`
+	return &http.Response{
+		Status:        "400 Bad Request",
+		StatusCode:    http.StatusBadRequest,
+		Proto:         resp.Proto,
+		ProtoMajor:    resp.ProtoMajor,
+		ProtoMinor:    resp.ProtoMinor,
+		Header:        http.Header{"Content-Type": {"application/json"}},
+		Body:          io.NopCloser(strings.NewReader(slowDown)),
+		ContentLength: int64(len(slowDown)),
+		Request:       req,
+	}, nil
 }
 
 // WriteInstructions is the conventional rendering of a DevicePrompt, offered so

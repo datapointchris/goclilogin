@@ -85,6 +85,11 @@ automatically right. `go list -m all` from a consumer names them.
   the file, and its source may be shared by every machine. A client id written
   there becomes every machine's, which ends one client per machine. The refusal
   carries the lines to add to the source.
+- **A login waiting for approval outlives a rate limit.** x/oauth2's poll
+  returns on every answer but `authorization_pending` and `slow_down`, so
+  `pollForApproval` polls through a client that turns a 429 or
+  `temporarily_unavailable` into `slow_down`. Without it, a rate limit on the
+  token endpoint ends a login the user is still approving.
 - **Presentation stays with the caller.** `Login` takes a `func(DevicePrompt)`;
   it never writes to a stream itself. `WriteInstructions` is offered, not
   imposed.

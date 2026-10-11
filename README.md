@@ -160,6 +160,13 @@ running the CLI, which is false over SSH. The device grant moves approval to any
 browser on any device and leaves the CLI polling, so logging in on a remote box
 does not mean physically going to it.
 
+A login waiting for approval outlives a rate limit on the token endpoint. The
+poll is x/oauth2's, which keeps going only on `authorization_pending` and
+`slow_down`. An HTTP 429, or the OAuth error `temporarily_unavailable` that
+Authelia sends when it rate-limits the endpoint itself, reaches that loop as
+`slow_down`. The interval then grows by five seconds for every later poll
+(RFC 8628 § 3.5), and the poll continues until the device code expires.
+
 `WriteInstructions` prints `BrowserURL`, the verification URL with the code
 already in it wherever the provider sends one. The bare verification page is not
 enough on its own: Authelia takes a browser that is already signed in straight
