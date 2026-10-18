@@ -28,6 +28,42 @@ type rotatingIDP struct {
 	revoked   bool
 	refreshes int
 	replays   int
+
+	// met closes once meet token requests have arrived. Until then each request
+	// waits, so the requests race on the provider rather than on the scheduler.
+	meet    int
+	arrived int
+	met     chan struct{}
+}
+
+// holdUntil makes the token endpoint answer nothing until n requests have
+// arrived. Without it, one goroutine can finish its refresh and save before
+// the others read the store, and they then use its token instead of racing.
+func (r *rotatingIDP) holdUntil(n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.meet = n
+	r.met = make(chan struct{})
+}
+
+// wait holds a token request until holdUntil's count has arrived, or for five
+// seconds, so a test whose requests never all arrive fails rather than hangs.
+func (r *rotatingIDP) wait() {
+	r.mu.Lock()
+	met := r.met
+	if met == nil {
+		r.mu.Unlock()
+		return
+	}
+	r.arrived++
+	if r.arrived == r.meet {
+		close(met)
+	}
+	r.mu.Unlock()
+	select {
+	case <-met:
+	case <-time.After(5 * time.Second):
+	}
 }
 
 func newRotatingIDP(t *testing.T, initialRefreshToken string) *rotatingIDP {
@@ -50,6 +86,7 @@ func newRotatingIDP(t *testing.T, initialRefreshToken string) *rotatingIDP {
 func (r *rotatingIDP) token(w http.ResponseWriter, req *http.Request) {
 	_ = req.ParseForm()
 	presented := req.FormValue("refresh_token")
+	r.wait()
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -297,17 +334,22 @@ func unlockedTokenSource(t *testing.T, cfg Config, store *TokenStore) oauth2.Tok
 
 // The lock is the whole reason this package exists rather than a bare
 // ReuseTokenSource, so its absence has to be observable. Without it the same
-// eight processes replay a consumed token and the provider revokes the grant —
-// which is the failure TestTokenSource_ConcurrentProcessesRefreshOnce asserts
+// processes replay a consumed token and the provider revokes the grant — which
+// is the failure TestTokenSource_ConcurrentProcessesRefreshOnce asserts
 // against. If this test ever stops failing to revoke, that one has stopped
 // proving anything.
+//
+// The provider holds every refresh until all of them have arrived. No token is
+// saved before then, so every process presents the same refresh token, and the
+// replay does not depend on how the scheduler happened to order them.
 func TestTokenSource_WithoutTheLockTheGrantIsRevoked(t *testing.T) {
+	const processes = 8
 	idp := newRotatingIDP(t, "rt-initial")
+	idp.holdUntil(processes)
 	cfg := testConfig(t, idp.server.URL)
 	store := NewTestTokenStore(cfg)
 	seedExpiredToken(t, store, cfg.ClientID, "rt-initial")
 
-	const processes = 8
 	var wg sync.WaitGroup
 	sources := make([]oauth2.TokenSource, processes)
 	for i := range processes {
