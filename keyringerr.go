@@ -68,10 +68,11 @@ type keyringDiagnosis struct {
 func (d keyringDiagnosis) Error() string { return d.Reason }
 func (d keyringDiagnosis) Unwrap() error { return d.err }
 
-// diagnoseKeyring attributes a keyring failure before either cause is blamed,
-// per standards/help.md § "A failure with two causes is attributed before either
-// one is blamed". Save and Load both build their message from this, so the same
-// failure reads the same whichever door the user came in.
+// diagnoseKeyring attributes a keyring failure before either cause is blamed. A
+// keyring that is absent and one that is locked need different fixes, so a
+// message that guesses sends the user to the wrong one. Save and Load both build
+// their message from this, so the same failure reads the same whichever door the
+// user came in.
 //
 // goos is a parameter rather than a read of runtime.GOOS so that every branch is
 // reachable from a test on any host. A darwin-only branch behind a build tag

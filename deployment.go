@@ -176,9 +176,10 @@ func requireTrustedIssuer(ctx context.Context, resource, issuer, path string) er
 //
 //   - api is the file's, or else api, the URL the user gave login.
 //   - issuer is the file's, or else the one authorization server the API names
-//     in its RFC 9728 metadata at <api>/.well-known/oauth-protected-resource.
-//     That document is refused unless its resource is the API it was fetched
-//     for (RFC 9728 § 3.3).
+//     in its RFC 9728 metadata. That document's URL puts
+//     /.well-known/oauth-protected-resource between the API's host and its
+//     path, as RFC 9728 § 3.1 places it. The document is refused unless its
+//     resource is the API it was fetched for (RFC 9728 § 3.3).
 //   - client_id is the file's, or else clientID from --client-id, or else
 //     ClientID(product).
 //

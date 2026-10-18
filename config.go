@@ -63,8 +63,8 @@ func (c Config) stateDir() string {
 }
 
 // ClientID spells the conventional per-machine client id for a product:
-// product "icb" on a host reporting "archlinux.trusted" gives
-// "icb-cli-archlinux". A machine whose hostname differs from its logical name
+// product "myapp" on a host reporting "laptop.example.lan" gives
+// "myapp-cli-laptop". A machine whose hostname differs from its logical name
 // overrides the result rather than relying on it.
 func ClientID(product string) string {
 	host := shortHostname()

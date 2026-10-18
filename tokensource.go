@@ -65,7 +65,8 @@ func (l *lockingTokenSource) Token() (*oauth2.Token, error) {
 }
 
 // TokenSource returns an auto-refreshing, keychain-persisting token source for
-// the logged-in client, or ErrNotLoggedIn if there is no stored token.
+// the logged-in client, or ErrNotLoggedIn if there is no stored token. It reads
+// the issuer's discovery document before returning, for the token endpoint.
 //
 // Wrap it with oauth2.NewClient to get an *http.Client that injects and renews
 // the bearer token on every request, so resource code never handles tokens.
@@ -114,8 +115,16 @@ const (
 // This is the only thing that separates a soft expiry from a revoked grant. A
 // stored token says what the machine holds, not what the provider will honor,
 // and a status command that reads only the local expiry will call a dead grant
-// healthy. A live access token answers without a network call; an expired one
-// performs the refresh the next call would have performed anyway.
+// healthy.
+//
+// It builds a TokenSource, which reads the issuer's discovery document first.
+// An unreachable issuer is therefore SessionUnverified even while the stored
+// access token is live. A live access token then answers with no further call.
+// An expired one performs the refresh the next call would have performed anyway.
+//
+// Nothing stored is SessionUnverified as well, because the return carries no
+// error to tell it apart. A status command calls TokenStore.Load first and
+// branches on ErrNotLoggedIn.
 func VerifySession(ctx context.Context, cfg Config, store *TokenStore) (SessionState, *oauth2.Token) {
 	source, err := TokenSource(ctx, cfg, store)
 	if err != nil {
