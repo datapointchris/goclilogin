@@ -145,12 +145,18 @@ and leave everything else standing.
 
 ## Never write the breaking-change trailer in a commit message
 
-Those two words anywhere in a message cut a major here, and a major on a Go module
-with no `/vN` path is an outage rather than a version: `go install ...@latest` stops
-seeing the tag, every installed binary is stranded, and recovery is a reinstall on
-each machine. The analyzer matches unanchored and ORs past `.semrelrc`, so nothing
-switches it off, and a commit that merely *discusses* the trailer cuts one too — say
-"that marker" instead. Deliberate majors are `chore(release-major)`.
+Those two words anywhere in a message cut a major once this repo is past 0.x, and a
+major from v1 on, on a Go module with no `/vN` path, is an outage rather than a
+version: `go install ...@latest` stops seeing the tag, every installed binary is
+stranded, and recovery is a reinstall on each machine. On 0.x,
+`allow-initial-development-versions` cuts them as a minor. The analyzer matches
+unanchored and ORs past `.semrelrc`, so nothing switches it off, and a commit that
+merely *discusses* the trailer cuts one too — say "that marker" instead.
+
+This repo carries no `.semrelrc`, so no commit subject maps to a major. Reaching 1.0
+is dropping `allow-initial-development-versions`, and v1 needs no path suffix. A
+deliberate v2 or later needs a `.semrelrc` mapping `chore(release-major)` to a
+major, and the same release adds `/v2` to the module path.
 
 Recovery is not a history rewrite. Delete the major's releases and tags, remote
 and local. Then tag a baseline on `main` above the offending commit and push it;
