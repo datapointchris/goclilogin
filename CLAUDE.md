@@ -1,12 +1,12 @@
 # goclilogin — Claude Code instructions
 
 A public Go library, not a CLI. There is no `main` package and nothing to
-install; it ships as git tags and is consumed by the product CLIs in
-`~/webapps/*/cli/`.
+install; it ships as git tags. Its consumers are product CLIs, each the
+command-line client of one web API, kept in a `cli/` module beside that API.
 
 Written to be used by strangers. Treat the exported API, the README and the
 godoc as the product — a change that suits the internal consumers is not
-automatically right. `go list -m all` from a consumer names them.
+automatically right.
 
 ## Layout
 
@@ -39,10 +39,11 @@ automatically right. `go list -m all` from a consumer names them.
   prevented: the race costs one login, the block costs the CLI. `lockWait`
   bounds it at ten seconds, which is far past one HTTP round trip.
 - **The keyring downgrade stays visible.** `Save` returns the `Backend` it used,
-  `Load` reports where the token came from, and `Delete` clears both stores. This
-  is `standards/infrastructure.md` § "There is not always a keyring, and the
-  downgrade has to be visible", whose canonical source is `~/tools/ifiles/auth` —
-  a different token type under the same obligation. Never let `Save` swallow a
+  `Load` reports where the token came from, and `Delete` clears both stores.
+  There is not always a keyring, so a fallback is needed, and a token that lands
+  in plaintext without the user being told is a secret stored where nobody chose
+  to put it. Any tool keeping a token in the OS keychain owes the same, whatever
+  the token's type. Never let `Save` swallow a
   fall back to plaintext, and never let `Delete` stop at the first store that
   answers: a file token written before that host had a keyring would outlive the
   logout meant to remove it.
@@ -97,17 +98,17 @@ automatically right. `go list -m all` from a consumer names them.
   imposed.
 - **No cobra, and no CLI framework, in this module.** The consumers' auth
   commands have diverged and are deliberately not shared yet — see below. If a
-  `cobracmd/` is ever added, cobra stays confined to it, per
-  `standards/repo-structure.md` § "A library keeps its dependencies off its
-  consumers' surface".
+  `cobracmd/` is ever added, cobra stays confined to it, so a consumer importing
+  only the core never has cobra in its tree.
 - **No state directory means the store refuses rather than improvising.** There
   is then no private place for a secret, and dropping one into a shared temp
   directory is worse than failing.
 - **Each dependency earns its place**: `x/oauth2` for the protocol,
   `go-keyring` for the OS keychain, `gofrs/flock` for cross-platform locking,
   `BurntSushi/toml` for the config file. This is the credential path, so an
-  addition here is weighed against `standards/dependencies.md` rather than
-  waved through.
+  addition here is classified by what it can reach, and what was accepted is
+  written down, as the next rule does for `BurntSushi/toml`. Nothing is waved
+  through.
 - **`BurntSushi/toml` reaches only the bytes handed to `toml.Decode` and
   `toml.Marshal`.** It has no network code and no dependencies of its own. It
   gives a correct parser for a file people edit by hand, where a hand-rolled
@@ -120,9 +121,9 @@ automatically right. `go list -m all` from a consumer names them.
 
 ## Why the command layer is not in here
 
-The four consumers' `internal/cli/auth.go` files run 167–207 lines and have
-already diverged. Sharing them would mean a `cobracmd` that every consumer
-overrides, which is worse than four small copies.
+The consumers' `internal/cli/auth.go` files have diverged, each in its own
+direction. Sharing them would mean a `cobracmd` that every consumer overrides,
+which is worse than a small copy in each.
 
 The core was extracted because it was measured as identical: three of the four
 `internal/auth` packages were 447 lines differing only in one constant, the
@@ -149,6 +150,10 @@ with no `/vN` path is an outage rather than a version: `go install ...@latest` s
 seeing the tag, every installed binary is stranded, and recovery is a reinstall on
 each machine. The analyzer matches unanchored and ORs past `.semrelrc`, so nothing
 switches it off, and a commit that merely *discusses* the trailer cuts one too — say
-"that marker" instead. Deliberate majors are `chore(release-major)`. Reset procedure
-and the measurement: `standards/release.md` § "Never write the breaking-change
-trailer in a Go repo's commit message".
+"that marker" instead. Deliberate majors are `chore(release-major)`.
+
+Recovery is not a history rewrite. Delete the major's releases and tags, remote
+and local. Then tag a baseline on `main` above the offending commit and push it;
+without the baseline the commit stays in the analyzed range and the next push
+cuts the major again. `go list -m github.com/datapointchris/goclilogin@latest`
+must then answer the earlier line's tag.
