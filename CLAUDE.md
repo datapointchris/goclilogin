@@ -42,11 +42,9 @@ automatically right.
   `Load` reports where the token came from, and `Delete` clears both stores.
   There is not always a keyring, so a fallback is needed, and a token that lands
   in plaintext without the user being told is a secret stored where nobody chose
-  to put it. Any tool keeping a token in the OS keychain owes the same, whatever
-  the token's type. Never let `Save` swallow a
-  fall back to plaintext, and never let `Delete` stop at the first store that
-  answers: a file token written before that host had a keyring would outlive the
-  logout meant to remove it.
+  to put it. Never let `Save` swallow a fallback to plaintext, and never let
+  `Delete` stop at the first store that answers: a file token written before
+  that host had a keyring would outlive the logout meant to remove it.
 - **The fallback is for a host that may have no keyring, not for a keyring that
   refused.** `Save` returns an error where `diag.Cause.keyringPresent()`, because
   a locked keychain is a condition of the session while a file token outlives it
@@ -107,8 +105,7 @@ automatically right.
   `go-keyring` for the OS keychain, `gofrs/flock` for cross-platform locking,
   `BurntSushi/toml` for the config file. This is the credential path, so an
   addition here is classified by what it can reach, and what was accepted is
-  written down, as the next rule does for `BurntSushi/toml`. Nothing is waved
-  through.
+  written down, as the next rule does for `BurntSushi/toml`.
 - **`BurntSushi/toml` reaches only the bytes handed to `toml.Decode` and
   `toml.Marshal`.** It has no network code and no dependencies of its own. It
   gives a correct parser for a file people edit by hand, where a hand-rolled
@@ -145,13 +142,13 @@ and leave everything else standing.
 
 ## Never write the breaking-change trailer in a commit message
 
-Those two words anywhere in a message cut a major once this repo is past 0.x, and a
-major from v1 on, on a Go module with no `/vN` path, is an outage rather than a
-version: `go install ...@latest` stops seeing the tag, every installed binary is
-stranded, and recovery is a reinstall on each machine. On 0.x,
-`allow-initial-development-versions` cuts them as a minor. The analyzer matches
-unanchored and ORs past `.semrelrc`, so nothing switches it off, and a commit that
-merely *discusses* the trailer cuts one too — say "that marker" instead.
+Those two words anywhere in a message cut a major once this repo is past 0.x. On
+0.x, `allow-initial-development-versions` cuts them as a minor. From v1 on, a
+major on a module path with no `/vN` suffix is an outage rather than a version:
+`go install ...@latest` stops seeing the tag, every installed binary is stranded,
+and recovery is a reinstall on each machine. The analyzer matches unanchored and
+ORs past `.semrelrc`, so nothing switches it off, and a commit that merely
+*discusses* the trailer cuts one too — say "that marker" instead.
 
 This repo carries no `.semrelrc`, so no commit subject maps to a major. Reaching 1.0
 is dropping `allow-initial-development-versions`, and v1 needs no path suffix. A

@@ -106,9 +106,9 @@ const (
 
 	// SessionRejected means the provider stated that it refuses to issue a
 	// token. For a device-grant session that is a refused refresh, which only
-	// an interactive login fixes. For a client-credentials client it is the
-	// client's own request refused. The secret or the client's registration is
-	// what needs fixing there.
+	// an interactive login fixes. For a client-credentials client the provider
+	// refused the client itself, and the secret or the client's registration
+	// needs fixing.
 	SessionRejected SessionState = "rejected"
 
 	// SessionUnverified means no refusal was stated. The provider could not be
@@ -161,9 +161,8 @@ func ClassifySession(token *oauth2.Token, err error) (SessionState, *oauth2.Toke
 // failed or is shedding load, so a code they carry is about the moment rather
 // than the grant. A proxy's 502 page carries no code at all.
 //
-// RFC 6749 §5.2 puts a refusal on a 400 or 401. x/oauth2 also accepts one on a
-// 200, which some providers send. So the status is checked for failure rather
-// than matched against those two.
+// A code on a 200 counts too: x/oauth2 accepts one there, and some providers
+// send it.
 //
 // A refresh happens inside the transport of whichever request triggered it, so
 // a refusal reaches a command as that request's error. That error carries a URL

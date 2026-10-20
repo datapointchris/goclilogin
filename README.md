@@ -201,9 +201,8 @@ cost the CLI.
 
 `TestTokenSource_WithoutTheLockTheGrantIsRevoked` pins the claim. It runs the
 same concurrent processes with the lock absent and asserts the grant *is*
-revoked.
-If the unlocked run ever stops revoking, the locked test has stopped proving
-anything.
+revoked. If the unlocked run ever stops revoking, the locked test has stopped
+proving anything.
 
 ## `Login` — the device grant, because approval has to work over SSH
 
@@ -330,11 +329,10 @@ secret never goes in that file, which is not a secret store.
 environment. Where the secret lives, and what the variable is called, is the
 CLI's decision, as the client id already is.
 
-`myapp-svc-scheduler` is a confidential client registered at the provider for
-the service alone. It is never what `goclilogin.ClientID(product)` returns. That
-function names the public device-grant client for one machine, which holds no
-secret and cannot use this grant. Registering that id as confidential breaks the
-device login on that host.
+`myapp-svc-scheduler` is never what `goclilogin.ClientID(product)` returns.
+That function names the public device-grant client for one machine, which holds
+no secret and cannot use this grant. Registering that id as confidential breaks
+the device login on that host.
 
 Give the service's client a name your API can tell from a person's, such as a
 `-svc-` prefix. The API then admits it as the service, limited to its scopes,
