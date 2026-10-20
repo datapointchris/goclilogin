@@ -19,7 +19,11 @@ import (
 // when a consumed one is replayed, so an unserialized refresh across processes
 // costs an interactive login.
 type lockingTokenSource struct {
-	ctx      context.Context
+	ctx context.Context
+	cfg Config
+
+	// oauthCfg is built from the issuer's discovery document on the first
+	// refresh, so a live token costs no call to the issuer.
 	oauthCfg *oauth2.Config
 	store    *TokenStore
 	clientID string
@@ -53,6 +57,13 @@ func (l *lockingTokenSource) Token() (*oauth2.Token, error) {
 		}
 	}
 
+	if l.oauthCfg == nil {
+		meta, err := discover(l.ctx, l.cfg.Issuer)
+		if err != nil {
+			return nil, err
+		}
+		l.oauthCfg = oauthConfig(l.cfg, meta)
+	}
 	refreshed, err := l.oauthCfg.TokenSource(l.ctx, l.tok).Token()
 	if err != nil {
 		return nil, err
@@ -66,7 +77,8 @@ func (l *lockingTokenSource) Token() (*oauth2.Token, error) {
 
 // TokenSource returns an auto-refreshing, keychain-persisting token source for
 // the logged-in client, or ErrNotLoggedIn if there is no stored token. It reads
-// the issuer's discovery document before returning, for the token endpoint.
+// no network: the issuer's discovery document is read on the first refresh, so
+// a command holding a live token works while the issuer is unreachable.
 //
 // Wrap it with oauth2.NewClient to get an *http.Client that injects and renews
 // the bearer token on every request, so resource code never handles tokens.
@@ -75,13 +87,9 @@ func TokenSource(ctx context.Context, cfg Config, store *TokenStore) (oauth2.Tok
 	if err != nil {
 		return nil, err
 	}
-	meta, err := discover(ctx, cfg.Issuer)
-	if err != nil {
-		return nil, err
-	}
 	return &lockingTokenSource{
 		ctx:      ctx,
-		oauthCfg: oauthConfig(cfg, meta),
+		cfg:      cfg,
 		store:    store,
 		clientID: cfg.ClientID,
 		lockDir:  cfg.stateDir(),
@@ -117,10 +125,10 @@ const (
 // and a status command that reads only the local expiry will call a dead grant
 // healthy.
 //
-// It builds a TokenSource, which reads the issuer's discovery document first.
-// An unreachable issuer is therefore SessionUnverified even while the stored
-// access token is live. A live access token then answers with no further call.
-// An expired one performs the refresh the next call would have performed anyway.
+// A live access token answers with no call to the issuer, so it is SessionLive
+// even while the issuer is unreachable. An expired one performs the refresh the
+// next call would have performed anyway, and an unreachable issuer then makes it
+// SessionUnverified.
 //
 // Nothing stored is SessionUnverified as well, because the return carries no
 // error to tell it apart. A status command calls TokenStore.Load first and

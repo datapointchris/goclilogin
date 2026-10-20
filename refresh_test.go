@@ -240,8 +240,9 @@ func TestTokenSource_PersistsTheRefreshedToken(t *testing.T) {
 	}
 }
 
-// A token that has not expired is used as it is. Refreshing early spends a
-// rotation for nothing.
+// A token that has not expired is used as it is, with no call to the issuer.
+// Refreshing early spends a rotation for nothing, and an issuer that is down
+// would fail a command that needed nothing from it.
 func TestTokenSource_DoesNotRefreshALiveToken(t *testing.T) {
 	idp := newRotatingIDP(t, "rt-initial")
 	cfg := testConfig(t, idp.server.URL)
@@ -254,6 +255,7 @@ func TestTokenSource_DoesNotRefreshALiveToken(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed the store: %v", err)
 	}
+	idp.server.Close()
 
 	source, err := TokenSource(context.Background(), cfg, store)
 	if err != nil {
@@ -265,9 +267,6 @@ func TestTokenSource_DoesNotRefreshALiveToken(t *testing.T) {
 	}
 	if tok.AccessToken != "at-live" {
 		t.Errorf("access token = %q, want the stored live one", tok.AccessToken)
-	}
-	if refreshes, _, _ := idp.counts(); refreshes != 0 {
-		t.Errorf("refreshes = %d, want 0 for a live token", refreshes)
 	}
 }
 

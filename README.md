@@ -81,7 +81,7 @@ to read.
 | What does a first login fill in | `DeploymentForLogin` | the config file, then the API's RFC 9728 metadata for a missing `issuer` |
 | How does a person log in | `Login` | the issuer's OIDC discovery document, then the device grant |
 | Where did the token go | `TokenStore.Save`, `TokenStore.Load` | the OS keychain, then the mode-600 file in `StateDir` |
-| How do requests get a token | `TokenSource` | the store, the discovery document, and the refresh lock |
+| How do requests get a token | `TokenSource` | the store, then on a refresh the refresh lock and the discovery document |
 | Does the provider still honor the session | `VerifySession` | the same as `TokenSource` |
 | Was this request's error a refused grant | `IsSessionRejected`, `ClassifySession` | the error's chain |
 | How does a service with no person authenticate | `ClientCredentialsTokenSource` | the discovery document and the token endpoint |
@@ -122,8 +122,8 @@ passes. One trusting another login server, or serving no metadata, does not.
 from the file and caches them nowhere else. So what the file says is where the
 CLI is pointed, and a status command printing the file has printed the whole
 answer. The `--api` check reads metadata only to refuse, and keeps none of it.
-`TokenSource` does read the issuer's OIDC discovery document on every run, for
-the token endpoint.
+`TokenSource` reads the issuer's OIDC discovery document when a refresh needs
+the token endpoint. A command holding a live token makes no call to the issuer.
 
 A key set to `""` is an error naming the file. TOML counts it as defined, so a
 login filling it in would write a second definition, and no TOML reader accepts
@@ -237,10 +237,9 @@ status command reading only the local expiry will call a dead grant healthy and
 promise a refresh that never happens.
 
 `VerifySession` asks for a token the way a resource call does and reports
-`SessionLive`, `SessionRejected`, or `SessionUnverified`. It builds a
-`TokenSource`, which reads the issuer's discovery document. A live access token
-then answers with no further call. An expired one performs the refresh the next
-call would have performed anyway. An unreachable provider proves nothing, so it
+`SessionLive`, `SessionRejected`, or `SessionUnverified`. A live access token
+answers with no call to the issuer. An expired one performs the refresh the
+next call would have performed anyway. An unreachable provider proves nothing, so it
 is its own state rather than being folded into either of the others.
 
 `VerifySession` also reports `SessionUnverified` when nothing is stored. A
