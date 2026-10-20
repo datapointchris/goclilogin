@@ -15,9 +15,9 @@
 // command, with an explicit --api outranking it, and consults no environment
 // variable and no compiled-in address. An --api that differs from the file's
 // must name the file's issuer in its RFC 9728 metadata before a token is sent
-// to it. Login is the only writer. DeploymentForLogin fills in what the file lacks, the issuer from
-// the API's RFC 9728 protected-resource metadata, and Deployment.Save adds
-// those keys without rewriting any the file already holds.
+// to it. Login is the only writer. DeploymentForLogin fills in what the file
+// lacks, the issuer from the API's RFC 9728 protected-resource metadata, and
+// Deployment.Save adds those keys without rewriting any the file already holds.
 //
 // # Why the device grant
 //

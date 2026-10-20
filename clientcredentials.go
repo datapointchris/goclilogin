@@ -35,8 +35,9 @@ type ServiceClient struct {
 // §4.4). It is for a CLI run by a service, such as a scheduler, where no person
 // is present to approve a device login.
 //
-// The secret is an argument because where it comes from is the caller's
-// decision, as the client id already is. This package reads it from nowhere.
+// The secret is an argument, and this package reads no environment variable or
+// file for it. Where it is kept is the caller's decision, as the client id
+// already is.
 //
 // Tokens live in process memory. A new one is requested when the last expires.
 // Nothing is persisted and no lock is taken. The grant issues no refresh token,
