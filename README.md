@@ -87,6 +87,14 @@ to read.
 | How does a service with no person authenticate | `ClientCredentialsTokenSource` | the discovery document and the token endpoint |
 | How do I test my commands without the keychain | `NewTestTokenStore` | an in-memory map |
 
+Each request any of these makes goes through the `*http.Client` the context
+carries under `oauth2.HTTPClient`, where the caller set one. Otherwise it goes
+through a client that gives up after 30 seconds. A provider that accepts the
+connection and never answers then fails the command rather than holding it, and
+`ClassifySession` reads that failure as `SessionUnverified`. The bound is per
+request, so a device login still waits for approval as long as its context
+allows.
+
 ## `LoadDeployment` — one file says where the CLI is pointed, and only login writes it
 
 A product CLI needs three values before it can do anything: the API's address,

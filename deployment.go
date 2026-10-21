@@ -469,7 +469,8 @@ func readProtectedResourceMetadata(ctx context.Context, resource string) (protec
 	if err != nil {
 		return meta, "", err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	_, client := withClient(ctx)
+	resp, err := client.Do(req)
 	if err != nil {
 		return meta, "", fmt.Errorf("reach the API at %s: %w", metadataURL, err)
 	}

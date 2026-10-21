@@ -87,6 +87,7 @@ func TokenSource(ctx context.Context, cfg Config, store *TokenStore) (oauth2.Tok
 	if err != nil {
 		return nil, err
 	}
+	ctx, _ = withClient(ctx)
 	return &lockingTokenSource{
 		ctx:      ctx,
 		cfg:      cfg,

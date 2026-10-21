@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"golang.org/x/oauth2"
 )
@@ -21,6 +22,24 @@ type providerMetadata struct {
 	DeviceAuthorizationEndpoint string `json:"device_authorization_endpoint"`
 }
 
+// requestTimeout bounds each request this package makes through a client it
+// chose. A provider that accepts the connection and never answers would
+// otherwise hold the command until its context ends, which for a command's
+// context is often never.
+var requestTimeout = 30 * time.Second
+
+// withClient is ctx carrying the client every request here goes through: the
+// caller's oauth2.HTTPClient where it set one, and otherwise one bounded by
+// requestTimeout. x/oauth2 reads the same context key, so the token requests
+// it makes are bounded too.
+func withClient(ctx context.Context) (context.Context, *http.Client) {
+	if client, ok := ctx.Value(oauth2.HTTPClient).(*http.Client); ok && client != nil {
+		return ctx, client
+	}
+	client := &http.Client{Timeout: requestTimeout}
+	return context.WithValue(ctx, oauth2.HTTPClient, client), client
+}
+
 // discover fetches the OIDC discovery document for the issuer.
 func discover(ctx context.Context, issuer string) (providerMetadata, error) {
 	discoURL := strings.TrimRight(issuer, "/") + "/.well-known/openid-configuration"
@@ -28,7 +47,8 @@ func discover(ctx context.Context, issuer string) (providerMetadata, error) {
 	if err != nil {
 		return providerMetadata{}, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	_, client := withClient(ctx)
+	resp, err := client.Do(req)
 	if err != nil {
 		return providerMetadata{}, fmt.Errorf("reach identity provider at %s: %w", discoURL, err)
 	}
@@ -95,6 +115,7 @@ func (p DevicePrompt) BrowserURL() string {
 // case over SSH, and the code is still displayed. Pass a ctx with a deadline;
 // the device code carries its own expiry but a caller should bound the wait.
 func Login(ctx context.Context, cfg Config, show func(DevicePrompt)) (*oauth2.Token, error) {
+	ctx, _ = withClient(ctx)
 	meta, err := discover(ctx, cfg.Issuer)
 	if err != nil {
 		return nil, err
@@ -129,10 +150,7 @@ func Login(ctx context.Context, cfg Config, show func(DevicePrompt)) (*oauth2.To
 // authorization_pending and slow_down, and returns on any other answer. So the
 // HTTP client it polls through turns an answer asking it to wait into slow_down.
 func pollForApproval(ctx context.Context, cfg *oauth2.Config, da *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
-	base, _ := ctx.Value(oauth2.HTTPClient).(*http.Client)
-	if base == nil {
-		base = http.DefaultClient
-	}
+	_, base := withClient(ctx)
 	client := *base
 	next := client.Transport
 	if next == nil {

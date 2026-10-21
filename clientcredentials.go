@@ -56,6 +56,7 @@ func ClientCredentialsTokenSource(ctx context.Context, client ServiceClient, sec
 	if len(client.Scopes) == 0 {
 		return nil, fmt.Errorf("client credentials for %s need at least one scope", client.ClientID)
 	}
+	ctx, _ = withClient(ctx)
 	meta, err := discover(ctx, client.Issuer)
 	if err != nil {
 		return nil, err

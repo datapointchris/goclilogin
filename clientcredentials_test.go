@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"golang.org/x/oauth2"
 )
@@ -192,6 +193,50 @@ func TestClientCredentialsTokenSource_OnlyARefusalTheProviderStatesIsRejected(t 
 				t.Errorf("state = %s, want %s, for: %v", state, tc.want, err)
 			}
 		})
+	}
+}
+
+// A token endpoint that accepts the connection and never answers fails the
+// request at requestTimeout, and says nothing about the grant. Without the
+// bound, a scheduled run whose context has no deadline hangs for good.
+func TestClientCredentialsTokenSource_AProviderThatNeverAnswersIsUnverified(t *testing.T) {
+	previous := requestTimeout
+	requestTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { requestTimeout = previous })
+
+	var server *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"issuer": server.URL, "token_endpoint": server.URL + "/token"})
+	})
+	// The body is read first, because the server notices the client hanging up
+	// only once it has been.
+	mux.HandleFunc("/token", func(_ http.ResponseWriter, req *http.Request) {
+		_ = req.ParseForm()
+		<-req.Context().Done()
+	})
+	server = httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	source, err := ClientCredentialsTokenSource(context.Background(), ServiceClient{Issuer: server.URL, ClientID: serviceClientID, Scopes: []string{"prod.items.read"}}, serviceSecret)
+	if err != nil {
+		t.Fatalf("ClientCredentialsTokenSource: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := source.Token()
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Token succeeded against a provider that never answered")
+		}
+		if state, _ := ClassifySession(nil, err); state != SessionUnverified {
+			t.Errorf("state = %s, want %s, for: %v", state, SessionUnverified, err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Token was still waiting on a provider that never answered")
 	}
 }
 
