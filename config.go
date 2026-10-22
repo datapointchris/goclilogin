@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/datapointchris/goapiauth/clientid"
 )
 
 // DefaultScopes are what a CLI needs from a standard OIDC provider.
@@ -71,7 +73,7 @@ func ClientID(product string) string {
 	if host == "" {
 		return product + "-cli"
 	}
-	return product + "-cli-" + host
+	return clientid.PersonPrefix(product) + host
 }
 
 // shortHostname is the hostname's first label, lowercased, or "" where the OS
