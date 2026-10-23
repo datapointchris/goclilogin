@@ -84,6 +84,7 @@ to read.
 | How do requests get a token | `TokenSource` | the store, then on a refresh the refresh lock and the discovery document |
 | Does the provider still honor the session | `VerifySession` | the same as `TokenSource` |
 | Was this request's error a refused grant | `IsSessionRejected`, `ClassifySession` | the error's chain |
+| What status did the API answer its metadata request with | `MetadataStatusError` | the error's chain |
 | How does a service with no person authenticate | `ClientCredentialsTokenSource` | the discovery document and the token endpoint |
 | How do I test my commands without the keychain | `NewTestTokenStore` | an in-memory map |
 
@@ -125,6 +126,9 @@ request to it carries a token the file's issuer signed. So its RFC 9728 metadata
 must name that issuer among its authorization servers, or the command is refused
 before any token is sent. A local development API trusting the same login server
 passes. One trusting another login server, or serving no metadata, does not.
+An answer other than 200 is a `*MetadataStatusError` carrying the status. So a
+caller can retry an API whose proxy answered 503, and stop at one that answered
+404.
 
 **None of the three values is derived after login.** Every command reads them
 from the file and caches them nowhere else. So what the file says is where the

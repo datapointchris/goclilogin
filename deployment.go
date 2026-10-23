@@ -456,6 +456,19 @@ func protectedResourceMetadataURL(resource string) (string, error) {
 	return u.String(), nil
 }
 
+// MetadataStatusError is an API answering its RFC 9728 metadata request with a
+// status other than 200. A caller reads StatusCode to tell an API that is down,
+// such as a 503 from its proxy, from one that serves no metadata at all.
+type MetadataStatusError struct {
+	URL        string
+	StatusCode int
+	Status     string
+}
+
+func (e *MetadataStatusError) Error() string {
+	return fmt.Sprintf("%s returned %s, so the API names no login server", e.URL, e.Status)
+}
+
 // readProtectedResourceMetadata fetches an API's RFC 9728 protected-resource
 // metadata and returns it with the URL it was read from. A document describing
 // another resource is refused, as § 3.3 requires.
@@ -476,7 +489,7 @@ func readProtectedResourceMetadata(ctx context.Context, resource string) (protec
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return meta, "", fmt.Errorf("%s returned %s, so the API names no login server", metadataURL, resp.Status)
+		return meta, "", &MetadataStatusError{URL: metadataURL, StatusCode: resp.StatusCode, Status: resp.Status}
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
 		return meta, "", fmt.Errorf("read %s: %w", metadataURL, err)

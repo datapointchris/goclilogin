@@ -245,9 +245,10 @@ client_id = "myapp-cli-workstation"
 
 func TestDeploymentForLogin_RefusesMetadataItCannotTrust(t *testing.T) {
 	tests := []struct {
-		name     string
-		document func(base string) *protectedResourceMetadata
-		want     string
+		name       string
+		document   func(base string) *protectedResourceMetadata
+		want       string
+		wantStatus int
 	}{
 		{
 			name: "metadata describing another resource",
@@ -277,9 +278,10 @@ func TestDeploymentForLogin_RefusesMetadataItCannotTrust(t *testing.T) {
 			want: "names 2 authorization servers",
 		},
 		{
-			name:     "no metadata published",
-			document: func(string) *protectedResourceMetadata { return nil },
-			want:     "404 Not Found",
+			name:       "no metadata published",
+			document:   func(string) *protectedResourceMetadata { return nil },
+			want:       "404 Not Found",
+			wantStatus: http.StatusNotFound,
 		},
 	}
 	for _, tt := range tests {
@@ -289,6 +291,10 @@ func TestDeploymentForLogin_RefusesMetadataItCannotTrust(t *testing.T) {
 			_, err := DeploymentForLogin(t.Context(), "myapp", api.URL, "")
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("err = %v, want one containing %q", err, tt.want)
+			}
+			var status *MetadataStatusError
+			if errors.As(err, &status) != (tt.wantStatus != 0) || (status != nil && status.StatusCode != tt.wantStatus) {
+				t.Errorf("err = %#v, want a *MetadataStatusError with status %d", err, tt.wantStatus)
 			}
 		})
 	}
