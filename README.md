@@ -86,6 +86,7 @@ to read.
 | Was this request's error a refused grant | `IsSessionRejected`, `ClassifySession` | the error's chain |
 | What status did the API answer its metadata request with | `MetadataStatusError` | the error's chain |
 | How does a service with no person authenticate | `ClientCredentialsTokenSource` | the discovery document and the token endpoint |
+| How does a CLI use tokens a broker hands it | `CommandTokenSource` | the stdout of `token_command` from the config file |
 | How do I test my commands without the keychain | `NewTestTokenStore` | an in-memory map |
 
 Each request any of these makes goes through the `*http.Client` the context
@@ -366,6 +367,41 @@ provider to support. The provider answers a wrong secret with a 401
 `invalid_client` and an unheld scope with a 400 `invalid_scope`.
 `ClassifySession` reports both as `SessionRejected`. What fixes either is the
 secret or the client's registration, not a login.
+
+## `CommandTokenSource` — a token handed by something else on the machine, asked for again as it expires
+
+A workload whose tokens come from a broker holds no secret and no login. A pod
+whose platform exchanges its workload identity for a short-lived token is one.
+The CLI runs a command for each token it needs, as AWS `credential_process`
+and kubectl's exec credential plugins do. The config file names the command:
+
+```toml
+api = "https://myapp.example.com"
+token_command = ["broker", "token", "myapp"]
+```
+
+```go
+deployment, err := goclilogin.LoadDeployment(ctx, "myapp", apiFlag)
+if deployment.HandsTokens() {
+    source, err := goclilogin.CommandTokenSource(ctx, deployment.TokenCommand.Argv())
+    client := oauth2.NewClient(ctx, source)
+}
+```
+
+The command prints the JSON a token endpoint answers with (RFC 6749 § 5.1):
+`access_token`, and optionally `token_type` and `expires_in`. Any script that
+calls a token endpoint and prints its answer is a valid command. A token is
+reused until `expires_in` runs out, counted from when the command started. A
+token type other than `Bearer` is refused.
+
+`token_command` is an argv, never a shell line. A file setting it needs only
+`api`, because the CLI never logs in, and `DeploymentForLogin` refuses it.
+`WriteDeployment` prints the command beside the other values.
+
+A command that exits non-zero is a `*TokenCommandError` carrying its stderr.
+`ClassifySession` reports it as `SessionUnverified`, because no provider stated
+a refusal. What fixes it is whatever the command talks to, so a CLI's message
+names the command, never `auth login`.
 
 ## `Config` — one product on one machine, logging in to one deployment
 

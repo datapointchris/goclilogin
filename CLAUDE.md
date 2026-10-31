@@ -14,7 +14,7 @@ automatically right.
 | --- | --- |
 | `doc.go` | Package doc: why the device grant, why refresh is serialized |
 | `config.go` | `Config`, `DefaultScopes`, `ClientID`, `StateDir` |
-| `deployment.go` | The config file: `LoadDeployment`, `DeploymentForLogin` with RFC 9728 discovery, `Save`, `WriteDeployment` |
+| `deployment.go` | The config file: `LoadDeployment`, `DeploymentForLogin` with RFC 9728 discovery, `Save`, `WriteDeployment`, `TokenCommand` |
 | `login.go` | Discovery, the device grant, `DevicePrompt`, `WriteInstructions` |
 | `store.go` | `TokenStore` over both backends, `Backend`, `ErrNotLoggedIn` |
 | `filestore.go` | The mode-600 fallback for hosts with no keyring |
@@ -22,6 +22,7 @@ automatically right.
 | `lock.go` | The machine-wide refresh lock |
 | `tokensource.go` | `TokenSource`, `VerifySession`, `IsSessionRejected` |
 | `clientcredentials.go` | `ServiceClient` and `ClientCredentialsTokenSource`, for a CLI run by a service |
+| `commandtoken.go` | `CommandTokenSource` and `TokenCommandError`, for a CLI handed its tokens by a command |
 
 ## Constraints that must not regress
 

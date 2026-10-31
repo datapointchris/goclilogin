@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
@@ -53,7 +54,8 @@ type Setting struct {
 
 // Deployment is where a product CLI's API and login server are, and the client
 // this machine logs in to them as. It is read from the product's config file,
-// which holds the keys api, issuer and client_id.
+// which holds the keys api, issuer and client_id, and token_command where
+// something else on the machine hands the CLI its tokens.
 type Deployment struct {
 	// Path is the config file the values were read from and are saved to.
 	Path string `json:"config_file"`
@@ -61,11 +63,53 @@ type Deployment struct {
 	API      Setting `json:"api"`
 	Issuer   Setting `json:"issuer"`
 	ClientID Setting `json:"client_id"`
+
+	// TokenCommand is what CommandTokenSource runs for each token, and only the
+	// config file sets it. A CLI whose file sets it is handed its tokens and
+	// never logs in, so the file then needs no issuer or client_id.
+	TokenCommand TokenCommand `json:"token_command,omitzero"`
 }
+
+// HandsTokens reports whether something else on the machine hands this CLI its
+// tokens through TokenCommand, so it has no login of its own.
+func (d Deployment) HandsTokens() bool { return !d.TokenCommand.IsZero() }
+
+// TokenCommand is an argv, held joined so a Deployment stays comparable with
+// ==. No argument can hold the NUL that joins them, since exec refuses one.
+type TokenCommand struct{ joined string }
+
+// NewTokenCommand holds argv as a TokenCommand.
+func NewTokenCommand(argv ...string) TokenCommand {
+	return TokenCommand{joined: strings.Join(argv, "\x00")}
+}
+
+// Argv is the program and its arguments, or nil for the zero command.
+func (c TokenCommand) Argv() []string {
+	if c.joined == "" {
+		return nil
+	}
+	return strings.Split(c.joined, "\x00")
+}
+
+// IsZero reports a command that names nothing to run.
+func (c TokenCommand) IsZero() bool { return c.joined == "" }
+
+// String is the argv joined by spaces, for a person to read.
+func (c TokenCommand) String() string { return strings.Join(c.Argv(), " ") }
+
+// MarshalJSON writes the argv as a JSON array.
+func (c TokenCommand) MarshalJSON() ([]byte, error) { return json.Marshal(c.Argv()) }
 
 // configFile is the part of a product's config file this package owns. Any
 // other key in the file belongs to the product and is read and kept as it is.
 type configFile struct {
+	loginKeys
+	TokenCommand []string `toml:"token_command,omitempty"`
+}
+
+// loginKeys are the keys a login fills in where the file lacks them, and the
+// only ones Save writes.
+type loginKeys struct {
 	API      string `toml:"api,omitempty"`
 	Issuer   string `toml:"issuer,omitempty"`
 	ClientID string `toml:"client_id,omitempty"`
@@ -96,7 +140,8 @@ func ConfigPath(product string) string {
 // api is the --api flag's value, and outranks the file's when it is not empty.
 //
 // Nothing else is consulted: no environment variable and no compiled-in
-// address. A value the file lacks is ErrNotConfigured, wrapped with the
+// address. A file setting token_command needs only api, since the CLI never
+// logs in. A value the file lacks is ErrNotConfigured, wrapped with the
 // `<product> auth login <url>` command that fills it in. The Deployment
 // returned beside that error still carries Path and whatever the file did set,
 // so a status command can show what is missing.
@@ -112,20 +157,25 @@ func LoadDeployment(ctx context.Context, product, api string) (Deployment, error
 		return Deployment{Path: path}, err
 	}
 	d := Deployment{
-		Path:     path,
-		API:      fromFile(file.API, path),
-		Issuer:   fromFile(file.Issuer, path),
-		ClientID: fromFile(file.ClientID, path),
+		Path:         path,
+		API:          fromFile(file.API, path),
+		Issuer:       fromFile(file.Issuer, path),
+		ClientID:     fromFile(file.ClientID, path),
+		TokenCommand: NewTokenCommand(file.TokenCommand...),
 	}
 	if api != "" {
 		d.API = Setting{Value: api, Source: SourceCommandLine}
 	}
 
-	var missing []string
-	for _, key := range []struct {
+	required := []struct {
 		name string
 		set  Setting
-	}{{"api", d.API}, {"issuer", d.Issuer}, {"client_id", d.ClientID}} {
+	}{{"api", d.API}, {"issuer", d.Issuer}, {"client_id", d.ClientID}}
+	if d.HandsTokens() {
+		required = required[:1]
+	}
+	var missing []string
+	for _, key := range required {
 		if key.set.Value == "" {
 			missing = append(missing, key.name)
 		}
@@ -141,6 +191,9 @@ func LoadDeployment(ctx context.Context, product, api string) (Deployment, error
 	if d.API.Source == SourceCommandLine {
 		fileAPI, _ := normalizeAPI(file.API)
 		if d.API.Value != fileAPI {
+			if d.Issuer.Value == "" {
+				return d, fmt.Errorf("%s sets no issuer, so --api %s cannot be checked before a token is sent to it", path, d.API.Value)
+			}
 			if err := requireTrustedIssuer(ctx, d.API.Value, d.Issuer.Value, path); err != nil {
 				return d, err
 			}
@@ -195,6 +248,10 @@ func DeploymentForLogin(ctx context.Context, product, api, clientID string) (Dep
 	if err != nil {
 		return Deployment{}, err
 	}
+	if len(file.TokenCommand) > 0 {
+		return Deployment{}, fmt.Errorf("%s sets token_command, so %s is handed its tokens by that command and never logs in",
+			path, product)
+	}
 	d := Deployment{Path: path}
 
 	switch {
@@ -247,7 +304,7 @@ func DeploymentForLogin(ctx context.Context, product, api, clientID string) (Dep
 		d.ClientID = Setting{Value: ClientID(product), Source: SourceHostname, From: shortHostname()}
 	}
 
-	if missing := d.unsaved(file); missing != (configFile{}) {
+	if missing := d.unsaved(file); missing != (loginKeys{}) {
 		if link := symlinkOnPath(path); link != "" {
 			return Deployment{}, refuseLink(link, path, missing)
 		}
@@ -275,7 +332,7 @@ func (d Deployment) Save() error {
 		return err
 	}
 	missing := d.unsaved(current)
-	if missing == (configFile{}) {
+	if missing == (loginKeys{}) {
 		return nil
 	}
 	if link := symlinkOnPath(d.Path); link != "" {
@@ -299,8 +356,8 @@ func (d Deployment) Save() error {
 
 // unsaved is what Save writes: each value current lacks that a layer other than
 // the config file supplied.
-func (d Deployment) unsaved(current configFile) configFile {
-	var missing configFile
+func (d Deployment) unsaved(current configFile) loginKeys {
+	var missing loginKeys
 	if current.API == "" && d.API.Source != SourceFile {
 		missing.API = d.API.Value
 	}
@@ -317,9 +374,9 @@ func (d Deployment) unsaved(current configFile) configFile {
 // a config manager owns the file, and its source may be shared by every machine
 // it manages. So the refusal offers api and issuer as lines for that source, and
 // never a client_id: one written there becomes every machine's client id.
-func refuseLink(link, path string, missing configFile) error {
+func refuseLink(link, path string, missing loginKeys) error {
 	refusal := fmt.Sprintf("%s is a symlink, so whatever manages it owns %s and login does not write through it", link, path)
-	if shared := (configFile{API: missing.API, Issuer: missing.Issuer}); shared != (configFile{}) {
+	if shared := (loginKeys{API: missing.API, Issuer: missing.Issuer}); shared != (loginKeys{}) {
 		lines, err := toml.Marshal(shared)
 		if err != nil {
 			return err
@@ -359,6 +416,9 @@ func WriteDeployment(w io.Writer, d Deployment) {
 			value = "-"
 		}
 		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\n", row.key, value, row.set.describeSource())
+	}
+	if d.HandsTokens() {
+		_, _ = fmt.Fprintf(tw, "  token_command\t%s\t(config file)\n", d.TokenCommand)
 	}
 	_, _ = fmt.Fprintf(tw, "  config\t%s\t\n", d.Path)
 	_ = tw.Flush()
@@ -421,6 +481,12 @@ func readConfigFile(path string) (configFile, error) {
 			return file, fmt.Errorf("%s sets %s to an empty value; give it one, or delete the line for login to fill in",
 				path, key.name)
 		}
+	}
+	if meta.IsDefined("token_command") && (len(file.TokenCommand) == 0 || file.TokenCommand[0] == "") {
+		return file, fmt.Errorf("%s sets token_command with no program to run; name one, as [\"program\", \"arg\"], or delete the line", path)
+	}
+	if slices.ContainsFunc(file.TokenCommand, func(arg string) bool { return strings.ContainsRune(arg, 0) }) {
+		return file, fmt.Errorf("%s sets token_command with a NUL in an argument, which no program can be passed", path)
 	}
 	return file, nil
 }
