@@ -3,24 +3,49 @@ package goclilogin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// tokenCommand writes an executable shell script running body, and returns its
-// path. Each run appends a line to the returned count file.
-func tokenCommand(t *testing.T, body string) (string, string) {
-	t.Helper()
-	dir := t.TempDir()
-	runs := filepath.Join(dir, "runs")
-	script := filepath.Join(dir, "token")
-	content := "#!/bin/sh\necho run >> '" + runs + "'\n" + body + "\n"
-	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
-		t.Fatal(err)
+const (
+	helperModeEnv = "GOCLILOGIN_TOKEN_COMMAND_HELPER"
+	helperRunsEnv = "GOCLILOGIN_TOKEN_COMMAND_RUNS"
+)
+
+// TestTokenCommandHelper is the token command the tests run, as the test
+// binary itself so it runs on every platform. It does nothing unless a test
+// set helperModeEnv.
+func TestTokenCommandHelper(t *testing.T) {
+	mode := os.Getenv(helperModeEnv)
+	if mode == "" {
+		return
 	}
-	return script, runs
+	runs, err := os.OpenFile(os.Getenv(helperRunsEnv), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err == nil {
+		_, _ = runs.WriteString("run\n")
+		_ = runs.Close()
+	}
+	switch mode {
+	case "token":
+		fmt.Println(`{"access_token": "handed", "token_type": "Bearer", "expires_in": 300}`)
+		os.Exit(0)
+	default:
+		fmt.Fprintln(os.Stderr, "the broker refused run 12")
+		os.Exit(3)
+	}
+}
+
+// tokenCommand is the argv running TestTokenCommandHelper in mode, and the file
+// each of its runs appends a line to.
+func tokenCommand(t *testing.T, mode string) ([]string, string) {
+	t.Helper()
+	runs := filepath.Join(t.TempDir(), "runs")
+	t.Setenv(helperModeEnv, mode)
+	t.Setenv(helperRunsEnv, runs)
+	return []string{os.Args[0], "-test.run=^TestTokenCommandHelper$"}, runs
 }
 
 func countRuns(t *testing.T, runs string) int {
@@ -33,8 +58,8 @@ func countRuns(t *testing.T, runs string) int {
 }
 
 func TestCommandTokenSource_ReusesTheHandedTokenUntilItExpires(t *testing.T) {
-	script, runs := tokenCommand(t, `echo '{"access_token": "handed", "token_type": "Bearer", "expires_in": 300}'`)
-	source, err := CommandTokenSource(context.Background(), []string{script})
+	command, runs := tokenCommand(t, "token")
+	source, err := CommandTokenSource(context.Background(), command)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,8 +78,8 @@ func TestCommandTokenSource_ReusesTheHandedTokenUntilItExpires(t *testing.T) {
 }
 
 func TestCommandTokenSource_AFailedCommandNamesItselfAndItsStderr(t *testing.T) {
-	script, _ := tokenCommand(t, "echo 'the broker refused run 12' >&2\nexit 3")
-	source, err := CommandTokenSource(context.Background(), []string{script, "myapp"})
+	command, _ := tokenCommand(t, "refuse")
+	source, err := CommandTokenSource(context.Background(), command)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +88,7 @@ func TestCommandTokenSource_AFailedCommandNamesItselfAndItsStderr(t *testing.T) 
 	if !errors.As(err, &failed) {
 		t.Fatalf("err = %v, want a *TokenCommandError", err)
 	}
-	if !strings.Contains(err.Error(), script+" myapp") || failed.Stderr != "the broker refused run 12" {
+	if !strings.Contains(err.Error(), strings.Join(command, " ")) || failed.Stderr != "the broker refused run 12" {
 		t.Fatalf("err = %v", err)
 	}
 	if state, _ := ClassifySession(nil, err); state != SessionUnverified {
