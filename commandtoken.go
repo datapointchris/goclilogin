@@ -26,7 +26,7 @@ const maxCommandStderr = 2000
 // The command prints a token response to stdout, the JSON a token endpoint
 // answers with (RFC 6749 §5.1): access_token, and optionally token_type and
 // expires_in. A token_type other than Bearer is refused. A token is reused
-// until expires_in, counted from when the command started, runs out. One
+// until its expires_in runs out, counted from when the command started. One
 // without expires_in is reused for the life of the process.
 //
 // A command that exits non-zero is a *TokenCommandError carrying its stderr.
@@ -35,7 +35,7 @@ const maxCommandStderr = 2000
 // when ctx ends.
 func CommandTokenSource(ctx context.Context, command []string) (oauth2.TokenSource, error) {
 	if len(command) == 0 || command[0] == "" {
-		return nil, errors.New("a token command names the program to run")
+		return nil, errors.New("the token command is empty: name the program to run as its first element")
 	}
 	return oauth2.ReuseTokenSource(nil, &commandSource{ctx: ctx, argv: slices.Clone(command)}), nil
 }

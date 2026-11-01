@@ -294,9 +294,9 @@ so a status command can say which one is in play. `Delete` clears both, or a
 file token outlives the logout meant to remove it. `Delete` revokes nothing at
 the provider. The machine forgets the token.
 
-The fallback is for a host that may have no keyring, not for a keyring having a
-bad day. Where one demonstrably exists and still refuses, `Save` returns an error
-naming the fix instead of writing plaintext. A macOS login keychain that will not
+The fallback is for a host that may have no keyring. Where a keyring
+demonstrably exists and still refuses, `Save` returns an error naming the fix
+instead of writing plaintext. A macOS login keychain that will not
 unlock from an SSH session is the common case, and the error names
 `security unlock-keychain`. The lock is a condition of the session, but a token
 written to the file outlives it, because `Load` prefers the keyring only while
@@ -391,8 +391,9 @@ if deployment.HandsTokens() {
 The command prints the JSON a token endpoint answers with (RFC 6749 § 5.1):
 `access_token`, and optionally `token_type` and `expires_in`. Any script that
 calls a token endpoint and prints its answer is a valid command. A token is
-reused until `expires_in` runs out, counted from when the command started. A
-token type other than `Bearer` is refused.
+reused until `expires_in` runs out, counted from when the command started, and
+one without `expires_in` is reused for the life of the process. A token type
+other than `Bearer` is refused.
 
 `token_command` is an argv, never a shell line. A file setting it needs only
 `api`, because the CLI never logs in, and `DeploymentForLogin` refuses it.

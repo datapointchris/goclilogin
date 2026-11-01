@@ -15,9 +15,9 @@ const (
 	helperRunsEnv = "GOCLILOGIN_TOKEN_COMMAND_RUNS"
 )
 
-// TestTokenCommandHelper is the token command the tests run, as the test
-// binary itself so it runs on every platform. It does nothing unless a test
-// set helperModeEnv.
+// TestTokenCommandHelper is the token command the tests run. It is the test
+// binary itself because Windows cannot exec a shell script. It does nothing
+// unless a test set helperModeEnv.
 func TestTokenCommandHelper(t *testing.T) {
 	mode := os.Getenv(helperModeEnv)
 	if mode == "" {

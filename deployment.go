@@ -78,7 +78,8 @@ func (d Deployment) HandsTokens() bool { return !d.TokenCommand.IsZero() }
 // ==. No argument can hold the NUL that joins them, since exec refuses one.
 type TokenCommand struct{ joined string }
 
-// NewTokenCommand holds argv as a TokenCommand.
+// NewTokenCommand holds argv as a TokenCommand. An argument holding a NUL
+// comes back from Argv split in two, since the NUL is the separator.
 func NewTokenCommand(argv ...string) TokenCommand {
 	return TokenCommand{joined: strings.Join(argv, "\x00")}
 }

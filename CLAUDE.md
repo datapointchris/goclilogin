@@ -104,9 +104,11 @@ automatically right.
   directory is worse than failing.
 - **Each dependency earns its place**: `x/oauth2` for the protocol,
   `go-keyring` for the OS keychain, `gofrs/flock` for cross-platform locking,
-  `BurntSushi/toml` for the config file. This is the credential path, so an
-  addition here is classified by what it can reach, and what was accepted is
-  written down, as the next rule does for `BurntSushi/toml`.
+  `BurntSushi/toml` for the config file, and `goapiauth/clientid`, which
+  imports nothing, for the client-id prefix the API's verifier checks. This is
+  the credential path, so an addition here is classified by what it can reach,
+  and what was accepted is written down, as the next rule does for
+  `BurntSushi/toml`.
 - **`BurntSushi/toml` reaches only the bytes handed to `toml.Decode` and
   `toml.Marshal`.** It has no network code and no dependencies of its own. It
   gives a correct parser for a file people edit by hand, where a hand-rolled
@@ -119,9 +121,9 @@ automatically right.
 
 ## Why the command layer is not in here
 
-The consumers' `internal/cli/auth.go` files have diverged, each in its own
-direction. Sharing them would mean a `cobracmd` that every consumer overrides,
-which is worse than a small copy in each.
+The consumers' `internal/cli/auth.go` files have diverged. Sharing them would
+mean a `cobracmd` that every consumer overrides, which is worse than a small
+copy in each.
 
 The core was extracted because it was measured as identical: three of the four
 `internal/auth` packages were 447 lines differing only in one constant, the

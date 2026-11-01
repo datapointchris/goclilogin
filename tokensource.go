@@ -76,9 +76,10 @@ func (l *lockingTokenSource) Token() (*oauth2.Token, error) {
 }
 
 // TokenSource returns an auto-refreshing, keychain-persisting token source for
-// the logged-in client, or ErrNotLoggedIn if there is no stored token. It reads
-// no network: the issuer's discovery document is read on the first refresh, so
-// a command holding a live token works while the issuer is unreachable.
+// the logged-in client, or ErrNotLoggedIn if there is no stored token. It
+// makes no request: the issuer's discovery document is read on the first
+// refresh, so a command holding a live token works while the issuer is
+// unreachable.
 //
 // Wrap it with oauth2.NewClient to get an *http.Client that injects and renews
 // the bearer token on every request, so resource code never handles tokens.
