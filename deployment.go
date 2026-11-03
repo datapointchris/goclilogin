@@ -42,6 +42,10 @@ const (
 	// SourceHostname is the per-machine spelling ClientID derives. From is the
 	// short hostname it was derived from.
 	SourceHostname Source = "hostname"
+
+	// SourceEnvironment is a value a product read from its environment, such as a
+	// service's client beside that client's secret. From is the variable's name.
+	SourceEnvironment Source = "environment"
 )
 
 // Setting is one resolved value and the layer that set it. An empty Value
@@ -440,6 +444,8 @@ func (s Setting) describeSource() string {
 			return "(no hostname)"
 		}
 		return "(from hostname " + s.From + ")"
+	case SourceEnvironment:
+		return "(from $" + s.From + ")"
 	}
 	return "(not set)"
 }
