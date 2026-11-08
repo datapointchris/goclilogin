@@ -141,22 +141,29 @@ func ConfigPath(product string) string {
 	return filepath.Join(base, product, "config.toml")
 }
 
-// LoadDeployment reads the deployment every command of a product CLI talks to.
-// api is the --api flag's value, and outranks the file's when it is not empty.
+// LoadDeployment is LoadDeploymentFrom the product's ConfigPath.
+func LoadDeployment(ctx context.Context, product, api string) (Deployment, error) {
+	return LoadDeploymentFrom(ctx, product, ConfigPath(product), api)
+}
+
+// LoadDeploymentFrom reads the deployment every command of a product CLI talks
+// to from the config file at path. api is the --api flag's value, and outranks
+// the file's when it is not empty.
 //
-// Nothing else is consulted: no environment variable and no compiled-in
-// address. A file setting token_command needs only api, since the CLI never
-// logs in. A value the file lacks is ErrNotConfigured, wrapped with the
-// `<product> auth login <url>` command that fills it in. The Deployment
-// returned beside that error still carries Path and whatever the file did set,
-// so a status command can show what is missing.
+// path is the caller's choice, such as a file a product's own variable names.
+// This package consults nothing else: no environment variable and no
+// compiled-in address. A file that does not exist sets nothing. A file setting
+// token_command needs only api, since the CLI never logs in. A value the file
+// lacks is ErrNotConfigured, wrapped with the `<product> auth login <url>`
+// command that fills it in. The Deployment returned beside that error still
+// carries Path and whatever the file did set, so a status command can show what
+// is missing.
 //
 // An api that differs from the file's is checked rather than trusted, because
 // every request to it carries a token the file's issuer signed. Its RFC 9728
 // metadata must name that issuer among its authorization servers, or the
 // command is refused before any token is sent. Nothing the check reads is kept.
-func LoadDeployment(ctx context.Context, product, api string) (Deployment, error) {
-	path := ConfigPath(product)
+func LoadDeploymentFrom(ctx context.Context, product, path, api string) (Deployment, error) {
 	file, err := readConfigFile(path)
 	if err != nil {
 		return Deployment{Path: path}, err
@@ -229,8 +236,14 @@ func requireTrustedIssuer(ctx context.Context, resource, issuer, path string) er
 		metadataURL, named, issuer, path)
 }
 
-// DeploymentForLogin resolves the deployment a login authenticates against. It
-// fills in only what the config file lacks:
+// DeploymentForLogin is DeploymentForLoginFrom the product's ConfigPath.
+func DeploymentForLogin(ctx context.Context, product, api, clientID string) (Deployment, error) {
+	return DeploymentForLoginFrom(ctx, product, ConfigPath(product), api, clientID)
+}
+
+// DeploymentForLoginFrom resolves the deployment a login authenticates against,
+// from the config file at path, which Save then writes. It fills in only what
+// the file lacks:
 //
 //   - api is the file's, or else api, the URL the user gave login.
 //   - issuer is the file's, or else the one authorization server the API names
@@ -247,8 +260,7 @@ func requireTrustedIssuer(ctx context.Context, resource, issuer, path string) er
 // comes before the user approves a grant rather than after. Print the result
 // before the device grant starts, so the login server is on screen before
 // anything is sent to it, and Save it once the grant succeeds.
-func DeploymentForLogin(ctx context.Context, product, api, clientID string) (Deployment, error) {
-	path := ConfigPath(product)
+func DeploymentForLoginFrom(ctx context.Context, product, path, api, clientID string) (Deployment, error) {
 	file, err := readConfigFile(path)
 	if err != nil {
 		return Deployment{}, err

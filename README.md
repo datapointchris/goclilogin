@@ -77,8 +77,8 @@ to read.
 
 | Ask | Function | Reads |
 | --- | --- | --- |
-| Where is this CLI pointed | `LoadDeployment`, `WriteDeployment` | the config file, and an `--api`'s RFC 9728 metadata where it differs from the file's |
-| What does a first login fill in | `DeploymentForLogin` | the config file, then the API's RFC 9728 metadata for a missing `issuer` |
+| Where is this CLI pointed | `LoadDeployment`, `LoadDeploymentFrom`, `WriteDeployment` | the config file, and an `--api`'s RFC 9728 metadata where it differs from the file's |
+| What does a first login fill in | `DeploymentForLogin`, `DeploymentForLoginFrom` | the config file, then the API's RFC 9728 metadata for a missing `issuer` |
 | How does a person log in | `Login` | the issuer's OIDC discovery document, then the device grant |
 | Where did the token go | `TokenStore.Save`, `TokenStore.Load` | the OS keychain, then the mode-600 file in `StateDir` |
 | How do requests get a token | `TokenSource` | the store, then on a refresh the refresh lock and the discovery document |
@@ -113,8 +113,24 @@ client_id = "myapp-cli-laptop"
 Any other key in that file is the product's own, and this package leaves it
 alone.
 
-**Every command calls `LoadDeployment`.** An explicit `--api` outranks the file,
-and that is the whole precedence. A value the file lacks is `ErrNotConfigured`,
+**A product may name another file.** `LoadDeploymentFrom` and
+`DeploymentForLoginFrom` take the path from the caller, and `Save` writes the
+`Path` they were given. A product that reads `MYAPP_CONFIG` resolves it itself
+and hands the path over, so every reader and the login agree on one file. This
+package reads no such variable, because one it read for every product would be
+a variable no product chose.
+
+```go
+path := os.Getenv("MYAPP_CONFIG")
+if path == "" {
+ path = goclilogin.ConfigPath("myapp")
+}
+deployment, err := goclilogin.LoadDeploymentFrom(ctx, "myapp", path, apiFlag)
+```
+
+**Every command calls `LoadDeployment`**, or `LoadDeploymentFrom` with the
+product's path. An explicit `--api` outranks the file, and that is the whole
+precedence. A value the file lacks is `ErrNotConfigured`,
 naming `<product> auth login <url>`. The `Deployment` returned beside that error
 still carries the path and whatever the file set, so a status command can show
 what is missing. No environment variable supplies a value, and no address is
@@ -444,7 +460,8 @@ The keychain is shared machine state and a test must not touch it. Point
 `cfg.StateDir` at a `t.TempDir()` so the fallback file lands there too.
 
 `LoadDeployment` reads `$XDG_CONFIG_HOME`, so `t.Setenv("XDG_CONFIG_HOME",
-t.TempDir())` gives a test a config file of its own.
+t.TempDir())` gives a test a config file of its own. `LoadDeploymentFrom` takes
+a path under `t.TempDir()` directly.
 
 ## Linux, macOS and Windows all build and pass the tests
 

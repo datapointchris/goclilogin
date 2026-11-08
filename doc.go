@@ -13,7 +13,9 @@
 // A product's config file, $XDG_CONFIG_HOME/<product>/config.toml, holds the
 // API's address, the issuer and the client id. LoadDeployment reads it on every
 // command, with an explicit --api outranking it, and consults no environment
-// variable and no compiled-in address. An --api that differs from the file's
+// variable and no compiled-in address. A product that lets its own variable
+// name the file resolves it, and hands the path to LoadDeploymentFrom and
+// DeploymentForLoginFrom. An --api that differs from the file's
 // must name the file's issuer in its RFC 9728 metadata before a token is sent
 // to it. Only a login writes the file: DeploymentForLogin fills in what it
 // lacks, taking the issuer from the API's RFC 9728 protected-resource

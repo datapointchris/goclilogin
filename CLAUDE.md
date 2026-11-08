@@ -14,7 +14,7 @@ automatically right.
 | --- | --- |
 | `doc.go` | Package doc: why the device grant, why refresh is serialized |
 | `config.go` | `Config`, `DefaultScopes`, `ClientID`, `StateDir` |
-| `deployment.go` | The config file: `LoadDeployment`, `DeploymentForLogin` with RFC 9728 discovery, `Save`, `WriteDeployment`, `TokenCommand` |
+| `deployment.go` | The config file: `LoadDeployment` and `DeploymentForLogin` with RFC 9728 discovery, each with a `…From` taking the path, `Save`, `WriteDeployment`, `TokenCommand` |
 | `login.go` | Discovery, the device grant, `DevicePrompt`, `WriteInstructions` |
 | `store.go` | `TokenStore` over both backends, `Backend`, `ErrNotLoggedIn` |
 | `filestore.go` | The mode-600 fallback for hosts with no keyring |
@@ -72,8 +72,11 @@ automatically right.
   store.
 - **A CLI's deployment is one file, and only login writes it.**
   `LoadDeployment` reads `--api` and `$XDG_CONFIG_HOME/<product>/config.toml`
-  and nothing else. It reads no environment variable and holds no compiled-in
-  address. A second source is a second place a value can come from unseen.
+  and nothing else. `LoadDeploymentFrom` and `DeploymentForLoginFrom` take the
+  file's path from the caller instead, so a product resolves a variable of its
+  own naming the file. This package reads no such variable and holds no
+  compiled-in address. A second source is a second place a value can come from
+  unseen, and one read for every product is a variable no product chose.
   `DeploymentForLogin` fills only what the file lacks and refuses a typed value
   that differs from it. `Save` adds missing keys at the top and never rewrites
   one, because a config manager may render the file and stays its authority.

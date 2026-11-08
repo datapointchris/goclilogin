@@ -188,6 +188,34 @@ func TestDeploymentForLogin_FillsABareFileThatSaveThenServes(t *testing.T) {
 	}
 }
 
+// A product naming its own file logs in, saves and loads there, and never
+// touches the file under XDG_CONFIG_HOME.
+func TestDeploymentForLoginFrom_SavesToTheCallersPath(t *testing.T) {
+	configHome(t)
+	path := filepath.Join(t.TempDir(), "dev.toml")
+	api := serveMetadata(t, func(base string) *protectedResourceMetadata {
+		return &protectedResourceMetadata{Resource: base, AuthorizationServers: []string{"https://auth.example.com"}}
+	})
+
+	login, err := DeploymentForLoginFrom(t.Context(), "myapp", path, api.URL, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := login.Save(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadDeploymentFrom(t.Context(), "myapp", path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Path != path || loaded.API.Value != api.URL || loaded.API.From != path {
+		t.Errorf("loaded %+v, want api %s from %s", loaded, api.URL, path)
+	}
+	if _, err := os.Stat(ConfigPath("myapp")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("%s exists after a login to %s", ConfigPath("myapp"), path)
+	}
+}
+
 // A machine whose config manager rendered all three keys logs in with exactly
 // what was rendered: nothing is fetched, and the file is not rewritten.
 func TestDeploymentForLogin_ACompleteFileIsUsedAsItIs(t *testing.T) {
