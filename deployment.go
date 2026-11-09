@@ -141,7 +141,7 @@ func ConfigPath(product string) string {
 	return filepath.Join(base, product, "config.toml")
 }
 
-// LoadDeployment is LoadDeploymentFrom the product's ConfigPath.
+// LoadDeployment calls LoadDeploymentFrom with the product's ConfigPath.
 func LoadDeployment(ctx context.Context, product, api string) (Deployment, error) {
 	return LoadDeploymentFrom(ctx, product, ConfigPath(product), api)
 }
@@ -236,7 +236,7 @@ func requireTrustedIssuer(ctx context.Context, resource, issuer, path string) er
 		metadataURL, named, issuer, path)
 }
 
-// DeploymentForLogin is DeploymentForLoginFrom the product's ConfigPath.
+// DeploymentForLogin calls DeploymentForLoginFrom with the product's ConfigPath.
 func DeploymentForLogin(ctx context.Context, product, api, clientID string) (Deployment, error) {
 	return DeploymentForLoginFrom(ctx, product, ConfigPath(product), api, clientID)
 }

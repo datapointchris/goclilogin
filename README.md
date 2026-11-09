@@ -123,15 +123,15 @@ a variable no product chose.
 ```go
 path := os.Getenv("MYAPP_CONFIG")
 if path == "" {
- path = goclilogin.ConfigPath("myapp")
+    path = goclilogin.ConfigPath("myapp")
 }
 deployment, err := goclilogin.LoadDeploymentFrom(ctx, "myapp", path, apiFlag)
 ```
 
 **Every command calls `LoadDeployment`**, or `LoadDeploymentFrom` with the
 product's path. An explicit `--api` outranks the file, and that is the whole
-precedence. A value the file lacks is `ErrNotConfigured`,
-naming `<product> auth login <url>`. The `Deployment` returned beside that error
+precedence. A value the file lacks is `ErrNotConfigured`, naming
+`<product> auth login <url>`. The `Deployment` returned beside that error
 still carries the path and whatever the file set, so a status command can show
 what is missing. No environment variable supplies a value, and no address is
 compiled in. An address compiled into a binary points every copy of it at one
@@ -312,8 +312,8 @@ the provider. The machine forgets the token.
 
 The fallback is for a host that may have no keyring. Where a keyring
 demonstrably exists and still refuses, `Save` returns an error naming the fix
-instead of writing plaintext. A macOS login keychain that will not
-unlock from an SSH session is the common case, and the error names
+instead of writing plaintext. A macOS login keychain that will not unlock from
+an SSH session is the common case, and the error names
 `security unlock-keychain`. The lock is a condition of the session, but a token
 written to the file outlives it, because `Load` prefers the keyring only while
 the keyring holds something. So the plaintext copy would go on being used long

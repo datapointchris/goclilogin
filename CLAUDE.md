@@ -73,10 +73,11 @@ automatically right.
 - **A CLI's deployment is one file, and only login writes it.**
   `LoadDeployment` reads `--api` and `$XDG_CONFIG_HOME/<product>/config.toml`
   and nothing else. `LoadDeploymentFrom` and `DeploymentForLoginFrom` take the
-  file's path from the caller instead, so a product resolves a variable of its
-  own naming the file. This package reads no such variable and holds no
-  compiled-in address. A second source is a second place a value can come from
-  unseen, and one read for every product is a variable no product chose.
+  file's path from the caller instead, so a product whose own variable names
+  the file resolves that variable itself. This package reads no such variable
+  and holds no compiled-in address. A second source is a second place a value
+  can come from unseen, and one read for every product is a variable no
+  product chose.
   `DeploymentForLogin` fills only what the file lacks and refuses a typed value
   that differs from it. `Save` adds missing keys at the top and never rewrites
   one, because a config manager may render the file and stays its authority.
