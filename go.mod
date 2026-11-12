@@ -2,7 +2,7 @@ module github.com/datapointchris/goclilogin
 
 go 1.26.8
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	github.com/BurntSushi/toml v1.6.0
