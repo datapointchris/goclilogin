@@ -98,36 +98,13 @@ func (f *fileStore) load() (map[string]storedToken, error) {
 }
 
 // write replaces the file atomically, so an interrupt cannot leave a truncated
-// token behind. os.CreateTemp already creates the file 0600, but the mode is set
-// explicitly as well: this is the line that keeps the token from being world
-// readable, and it should not survive only as a property of the helper.
+// token behind. The 0700 directory and 0600 file are passed explicitly: these
+// are the values that keep the token from being readable by anyone else, and
+// they should not survive only as a property of os.CreateTemp.
 func (f *fileStore) write(tokens map[string]storedToken) error {
-	dir := filepath.Dir(f.path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("creating %s: %w", dir, err)
-	}
-
 	data, err := json.MarshalIndent(tokens, "", "  ")
 	if err != nil {
 		return err
 	}
-
-	temp, err := os.CreateTemp(dir, ".token-*.json")
-	if err != nil {
-		return err
-	}
-	tempName := temp.Name()
-	defer func() { _ = os.Remove(tempName) }()
-
-	if _, err := temp.Write(data); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tempName, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tempName, f.path)
+	return writeFileAtomically(f.path, data, 0o700, 0o600)
 }

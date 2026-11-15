@@ -368,7 +368,13 @@ func (d Deployment) Save() error {
 	if len(existing) > 0 {
 		content = append(append(keys, '\n'), existing...)
 	}
-	return writeFileAtomically(d.Path, content)
+	// An existing file keeps its mode. A new one is 0644, since the file holds
+	// addresses and a client name but never a secret.
+	mode := fs.FileMode(0o644)
+	if info, err := os.Stat(d.Path); err == nil {
+		mode = info.Mode().Perm()
+	}
+	return writeFileAtomically(d.Path, content, 0o755, mode)
 }
 
 // unsaved is what Save writes: each value current lacks that a layer other than
@@ -606,18 +612,17 @@ func discoverAuthorizationServer(ctx context.Context, resource, path string) (st
 }
 
 // writeFileAtomically replaces path with content through a rename, so a reader
-// never sees half a file. An existing file keeps its mode; a new one is 0644,
-// since the file holds addresses and a client name but never a secret.
-func writeFileAtomically(path string, content []byte) error {
+// never sees half a file and an interrupt never leaves a truncated one. A missing
+// directory is created with dirMode. The file gets fileMode before the rename, so
+// it is never visible under any other mode. Both the config file and the token
+// file are written through here, so a change to how a file is replaced reaches
+// both.
+func writeFileAtomically(path string, content []byte, dirMode, fileMode fs.FileMode) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+	if err := os.MkdirAll(dir, dirMode); err != nil {
+		return fmt.Errorf("creating %s: %w", dir, err)
 	}
-	mode := fs.FileMode(0o644)
-	if info, err := os.Stat(path); err == nil {
-		mode = info.Mode().Perm()
-	}
-	tmp, err := os.CreateTemp(dir, ".config.toml.*")
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
 	if err != nil {
 		return err
 	}
@@ -626,7 +631,7 @@ func writeFileAtomically(path string, content []byte) error {
 		_ = tmp.Close()
 		return err
 	}
-	if err := tmp.Chmod(mode); err != nil {
+	if err := tmp.Chmod(fileMode); err != nil {
 		_ = tmp.Close()
 		return err
 	}
