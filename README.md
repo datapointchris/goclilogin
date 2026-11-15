@@ -99,10 +99,12 @@ allows.
 
 ## `LoadDeployment` — one file says where the CLI is pointed, and only login writes it
 
-A product CLI needs three values before it can do anything: the API's address,
-the login server that issues its tokens, and the client this machine logs in as.
-All three live in `$XDG_CONFIG_HOME/<product>/config.toml`, or
-`~/.config/<product>/config.toml` where that variable is unset:
+A product CLI that logs in needs three values before it can do anything: the
+API's address, the login server that issues its tokens, and the client this
+machine logs in as. All three live in `$XDG_CONFIG_HOME/<product>/config.toml`,
+or `~/.config/<product>/config.toml` where that variable is unset. A file that
+sets `token_command` instead needs only `api`, as the `CommandTokenSource`
+section below describes:
 
 ```toml
 api = "https://api.example.com"
