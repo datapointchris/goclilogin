@@ -210,6 +210,12 @@ func (t *TokenStore) Load(clientID string) (*oauth2.Token, Backend, error) {
 // the file before that host had a keyring would otherwise survive the logout
 // meant to remove it.
 //
+// A keyring the host demonstrably has that refuses the delete is an error, even
+// when the file held a token and was cleared. The keychain entry is still there,
+// so reporting the logout as done, or as ErrNotLoggedIn, would leave a token
+// behind that the user believes is gone. A keyring that may not exist at all
+// fails the way it does in Load, and the file's answer stands.
+//
 // It does not revoke the grant at the provider — this machine simply forgets it.
 func (t *TokenStore) Delete(clientID string) error {
 	keyringErr := t.backend.Delete(t.service, clientID)
@@ -217,6 +223,11 @@ func (t *TokenStore) Delete(clientID string) error {
 
 	if fileErr != nil && !errors.Is(fileErr, ErrNotLoggedIn) {
 		return fileErr
+	}
+	if keyringErr != nil && !errors.Is(keyringErr, keyring.ErrNotFound) {
+		if diag := diagnoseKeyring(t.goos, keyringErr); diag.Cause.keyringPresent() {
+			return diag
+		}
 	}
 	if keyringErr == nil || fileErr == nil {
 		return nil

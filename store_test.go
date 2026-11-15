@@ -109,3 +109,23 @@ func TestSave_RefusalUnwrapsToTheProviderError(t *testing.T) {
 		t.Errorf("refusal does not unwrap to the provider error: %v", err)
 	}
 }
+
+// A logout whose keychain delete was refused has left the token in the
+// keychain, so it must not report success just because the file also held one.
+func TestDelete_RefusesWhereAPresentKeyringRefused(t *testing.T) {
+	keyringErr := exitErrorWithCode(t, errSecInteractionNotAllowed)
+	store := &TokenStore{
+		service: "prod-cli",
+		backend: failingKeyring{err: keyringErr},
+		file:    newFileStore(t.TempDir()),
+		goos:    "darwin",
+	}
+	if err := store.file.Set("prod-cli-testhost", fromOAuth2(&oauth2.Token{AccessToken: "access"})); err != nil {
+		t.Fatalf("seeding the file: %v", err)
+	}
+
+	err := store.Delete("prod-cli-testhost")
+	if !errors.Is(err, keyringErr) {
+		t.Errorf("Delete = %v, want the keychain's refusal", err)
+	}
+}

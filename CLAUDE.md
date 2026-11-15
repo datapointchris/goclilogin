@@ -57,7 +57,8 @@ automatically right.
 - **A keyring that fails is not a keyring with no entry.** `Load` carries the
   provider's own error through only in the first case. Reporting a locked
   keychain as `ErrNotLoggedIn` sends the user to re-authenticate against a store
-  that was never the problem.
+  that was never the problem. `Delete` returns the diagnosis where a keyring the
+  host has refused, because the token is still in it after the file is cleared.
 - **`SessionUnverified` is never folded into the other two.** An unreachable
   provider proves nothing about the grant, and reporting it as live or rejected
   is the defect `VerifySession` was written to fix. x/oauth2 returns a
