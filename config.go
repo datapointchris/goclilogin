@@ -43,8 +43,9 @@ type Config struct {
 	// fallback token file used on hosts with no OS keyring. Empty means
 	// StateDir(KeyringService).
 	//
-	// It is never left unset in a way that skips locking, because an unlocked
-	// refresh is the failure this package exists to prevent.
+	// Where no home directory resolves, the default is empty too. The refresh
+	// then runs unlocked, and the fallback token file refuses to save, rather
+	// than either one picking a directory other users can write.
 	StateDir string
 }
 
