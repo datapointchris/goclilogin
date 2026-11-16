@@ -230,10 +230,12 @@ covers no state directory, an unwritable one, and a holder still wedged after
 ten seconds. The race costs one login, and blocking on a wedged holder would
 cost the CLI.
 
-`TestTokenSource_WithoutTheLockTheGrantIsRevoked` pins the claim. It runs the
-same concurrent processes with the lock absent and asserts the grant *is*
-revoked. If the unlocked run ever stops revoking, the locked test has stopped
-proving anything.
+The lock is what keeps the grant alive, and the test suite shows it from both
+sides. Concurrent processes refreshing one expired token under the lock spend
+the refresh token once, and the grant survives. The same processes with the
+lock removed all present that token, and the provider revokes the grant. The
+unlocked run is the control: if it ever stops revoking, the locked run has
+stopped proving anything.
 
 ## `Login` — the device grant, because approval has to work over SSH
 
