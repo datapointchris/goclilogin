@@ -184,7 +184,11 @@ func TestClientCredentialsTokenSource_OnlyARefusalTheProviderStatesIsRejected(t 
 			if err != nil {
 				t.Fatalf("ClientCredentialsTokenSource: %v", err)
 			}
-			response, err := oauth2.NewClient(context.Background(), source).Get(idp.server.URL + "/resource")
+			request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, idp.server.URL+"/resource", http.NoBody)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := oauth2.NewClient(context.Background(), source).Do(request)
 			if err == nil {
 				_ = response.Body.Close()
 				t.Fatal("the resource request succeeded")

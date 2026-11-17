@@ -15,9 +15,9 @@ func exitErrorWithCode(t *testing.T, code int) error {
 	t.Helper()
 
 	arg := strconv.Itoa(code)
-	cmd := exec.Command("sh", "-c", "exit "+arg)
+	cmd := exec.CommandContext(t.Context(), "sh", "-c", "exit "+arg)
 	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/c", "exit", arg)
+		cmd = exec.CommandContext(t.Context(), "cmd", "/c", "exit", arg)
 	}
 
 	err := cmd.Run()
