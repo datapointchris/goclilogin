@@ -91,11 +91,11 @@ to read.
 
 Each request any of these makes goes through the `*http.Client` the context
 carries under `oauth2.HTTPClient`, where the caller set one. Otherwise it goes
-through a client that gives up after 30 seconds. A provider that accepts the
-connection and never answers then fails the command rather than holding it, and
-`ClassifySession` reads that failure as `SessionUnverified`. The bound is per
-request, so a device login still waits for approval as long as its context
-allows.
+through a client that gives up after `requestTimeout`, set in `login.go`. A
+provider that accepts the connection and never answers then fails the command
+rather than holding it, and `ClassifySession` reads that failure as
+`SessionUnverified`. The bound is per request, so a device login still waits
+for approval as long as its context allows.
 
 ## `LoadDeployment` — one file says where the CLI is pointed, and only login writes it
 
@@ -226,9 +226,9 @@ the contention is between processes rather than goroutines. The lock is a file
 in `StateDir`, held on an open descriptor, so a process that dies releases it.
 
 Every lock failure degrades to an unlocked refresh, never to an error. That
-covers no state directory, an unwritable one, and a holder still wedged after
-ten seconds. The race costs one login, and blocking on a wedged holder would
-cost the CLI.
+covers no state directory, an unwritable one, and a holder still wedged once
+`lockWait` in `lock.go` runs out. The race costs one login, and blocking on a
+wedged holder would cost the CLI.
 
 The lock is what keeps the grant alive, and the test suite shows it from both
 sides. Concurrent processes refreshing one expired token under the lock spend

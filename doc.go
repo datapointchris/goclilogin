@@ -60,8 +60,9 @@
 //
 // Each request this package makes goes through the *http.Client a context
 // carries under oauth2.HTTPClient, where the caller set one. Otherwise it goes
-// through a client that gives up after 30 seconds. A provider that accepts the
-// connection and never answers then fails the command rather than holding it,
-// and the failure classifies as SessionUnverified. A device login still waits
-// for approval as long as its context allows, because the bound is per request.
+// through a client that gives up after requestTimeout, set in login.go. A
+// provider that accepts the connection and never answers then fails the
+// command rather than holding it, and the failure classifies as
+// SessionUnverified. A device login still waits for approval as long as its
+// context allows, because the bound is per request.
 package goclilogin

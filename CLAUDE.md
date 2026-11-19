@@ -38,7 +38,7 @@ automatically right.
 - **Every lock failure degrades to an unlocked refresh, never to an error.**
   Blocking forever on a wedged holder is a worse failure than the race being
   prevented: the race costs one login, the block costs the CLI. `lockWait`
-  bounds it at ten seconds, which is far past one HTTP round trip.
+  bounds it, and is set far past one HTTP round trip.
 - **The keyring downgrade stays visible.** `Save` returns the `Backend` it used,
   `Load` reports where the token came from, and `Delete` clears both stores.
   There is not always a keyring, so a fallback is needed, and a token that lands
