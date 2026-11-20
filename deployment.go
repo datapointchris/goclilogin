@@ -141,9 +141,24 @@ func ConfigPath(product string) string {
 	return filepath.Join(base, product, "config.toml")
 }
 
+// resolvedConfigPath is ConfigPath, refusing where it resolves nothing. Only
+// here is the empty path known to mean that neither XDG_CONFIG_HOME nor a home
+// directory was found, so only here does the error say so.
+func resolvedConfigPath(product string) (string, error) {
+	path := ConfigPath(product)
+	if path == "" {
+		return "", errors.New("no config file: neither XDG_CONFIG_HOME nor a home directory is set")
+	}
+	return path, nil
+}
+
 // LoadDeployment calls LoadDeploymentFrom with the product's ConfigPath.
 func LoadDeployment(ctx context.Context, product, api string) (Deployment, error) {
-	return LoadDeploymentFrom(ctx, product, ConfigPath(product), api)
+	path, err := resolvedConfigPath(product)
+	if err != nil {
+		return Deployment{}, err
+	}
+	return LoadDeploymentFrom(ctx, product, path, api)
 }
 
 // LoadDeploymentFrom reads the deployment every command of a product CLI talks
@@ -238,7 +253,11 @@ func requireTrustedIssuer(ctx context.Context, resource, issuer, path string) er
 
 // DeploymentForLogin calls DeploymentForLoginFrom with the product's ConfigPath.
 func DeploymentForLogin(ctx context.Context, product, api, clientID string) (Deployment, error) {
-	return DeploymentForLoginFrom(ctx, product, ConfigPath(product), api, clientID)
+	path, err := resolvedConfigPath(product)
+	if err != nil {
+		return Deployment{}, err
+	}
+	return DeploymentForLoginFrom(ctx, product, path, api, clientID)
 }
 
 // DeploymentForLoginFrom resolves the deployment a login authenticates against,
@@ -342,7 +361,7 @@ func DeploymentForLoginFrom(ctx context.Context, product, path, api, clientID st
 // case left for Save.
 func (d Deployment) Save() error {
 	if d.Path == "" {
-		return errors.New("no config file to save to: neither XDG_CONFIG_HOME nor a home directory is set")
+		return errors.New("no config file path to save to")
 	}
 	current, err := readConfigFile(d.Path)
 	if err != nil {
@@ -486,7 +505,7 @@ func fromFile(value, path string) Setting {
 func readConfigFile(path string) (configFile, error) {
 	var file configFile
 	if path == "" {
-		return file, errors.New("no config file: neither XDG_CONFIG_HOME nor a home directory is set")
+		return file, errors.New("no config file path was given")
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
