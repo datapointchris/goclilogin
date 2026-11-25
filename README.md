@@ -42,7 +42,7 @@ ctx, cancel := context.WithTimeout(ctx, 15*time.Minute) // the poll ends on the 
 defer cancel()
 token, err := goclilogin.Login(ctx, cfg, func(p goclilogin.DevicePrompt) {
     goclilogin.WriteInstructions(os.Stderr, cfg.ClientID, p) // code and URL on stderr, so stdout stays pipeable
-    _ = browser.OpenURL(p.BrowserURL())                      // optional; failing to open one is normal over SSH
+    _ = goclilogin.OpenBrowser(p.BrowserURL())               // optional; failing to open one is normal over SSH
 })
 backend, err := store.Save(cfg.ClientID, token) // BackendFile means no keyring: tell the user
 err = deployment.Save()                        // only after the grant succeeds; adds missing keys, rewrites none
@@ -80,6 +80,7 @@ to read.
 | Where is this CLI pointed | `LoadDeployment`, `LoadDeploymentFrom`, `WriteDeployment` | the config file, and an `--api`'s RFC 9728 metadata where it differs from the file's |
 | What does a first login fill in | `DeploymentForLogin`, `DeploymentForLoginFrom` | the config file, then the API's RFC 9728 metadata for a missing `issuer` |
 | How does a person log in | `Login` | the issuer's OIDC discovery document, then the device grant |
+| How does a login open the approval page | `OpenBrowser` | runs the platform's launcher: `xdg-open`, `open`, or the Windows shell |
 | Where did the token go | `TokenStore.Save`, `TokenStore.Load` | the OS keychain, then the mode-600 file in `StateDir` |
 | How do requests get a token | `TokenSource` | the store, then on a refresh the refresh lock and the discovery document |
 | Does the provider still honor the session | `VerifySession` | the same as `TokenSource` |
@@ -261,6 +262,14 @@ already in it wherever the provider sends one. The bare verification page is not
 enough on its own: Authelia takes a browser that is already signed in straight
 past it, and there is then nowhere to type the code. The code is printed as well,
 to check against the approval screen.
+
+`OpenBrowser` opens that URL on the machine running the CLI, and sends the
+launcher's output to the null device. A browser's startup warnings would
+otherwise land between the code and the URL. The null device is an opened file
+rather than `io.Discard`, because `os/exec` gives any other writer a pipe. The
+command then waits until every process holding the pipe exits, and a browser
+that `xdg-open` starts cold holds it. With `io.Discard`, the opener returns only
+when the user closes that browser, and `Login` does not poll until then.
 
 ## `VerifySession` — a soft expiry told apart from a revoked grant
 

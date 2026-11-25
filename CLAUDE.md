@@ -16,6 +16,7 @@ automatically right.
 | `config.go` | `Config`, `DefaultScopes`, `ClientID`, `StateDir` |
 | `deployment.go` | The config file: `LoadDeployment` and `DeploymentForLogin` with RFC 9728 discovery, each with a `…From` taking the path, `Save`, `WriteDeployment`, `TokenCommand` |
 | `login.go` | Discovery, the device grant, `DevicePrompt`, `WriteInstructions` |
+| `openbrowser.go` | `OpenBrowser`, the launcher with its output on the null device |
 | `store.go` | `TokenStore` over both backends, `Backend`, `ErrNotLoggedIn` |
 | `filestore.go` | The mode-600 fallback for hosts with no keyring |
 | `memorykeyring.go` | The in-memory backend behind `NewTestTokenStore` |
@@ -98,8 +99,14 @@ automatically right.
   `temporarily_unavailable` into `slow_down`. Without it, a rate limit on the
   token endpoint ends a login the user is still approving.
 - **Presentation stays with the caller.** `Login` takes a `func(DevicePrompt)`;
-  it never writes to a stream itself. `WriteInstructions` is offered, not
-  imposed.
+  it never writes to a stream itself. `WriteInstructions` and `OpenBrowser` are
+  offered, not imposed.
+- **`OpenBrowser` hands the launcher an opened `os.DevNull`, never
+  `io.Discard`.** `os/exec` gives a writer that is not a file a pipe, and `Wait`
+  holds it until the browser `xdg-open` started cold exits. The opener then
+  blocks, and `Login` does not poll while the screen says it is waiting.
+  `TestOpenBrowser_ReturnsBeforeTheBrowserItStartedExits` fails at its guard
+  with `io.Discard` in place.
 - **No cobra, and no CLI framework, in this module.** The consumers' auth
   commands have diverged and are deliberately not shared yet — see below. If a
   `cobracmd/` is ever added, cobra stays confined to it, so a consumer importing
@@ -109,11 +116,16 @@ automatically right.
   directory is worse than failing.
 - **Each dependency earns its place**: `x/oauth2` for the protocol,
   `go-keyring` for the OS keychain, `gofrs/flock` for cross-platform locking,
-  `BurntSushi/toml` for the config file, and `goapiauth/clientid`, which
-  imports nothing, for the client-id prefix the API's verifier checks. This is
-  the credential path, so an addition here is classified by what it can reach,
-  and what was accepted is written down, as the next rule does for
-  `BurntSushi/toml`.
+  `BurntSushi/toml` for the config file, `pkg/browser` for the platform's
+  browser launcher, and `goapiauth/clientid`, which imports nothing, for the
+  client-id prefix the API's verifier checks. This is the credential path, so
+  an addition here is classified by what it can reach, and what was accepted is
+  written down, as the next two rules do.
+- **`pkg/browser` reaches only the URL handed to `OpenURL`.** It runs
+  `xdg-open`, `x-www-browser` or `www-browser`, `open` on macOS, or
+  `ShellExecute` on Windows, with that URL as the one argument. It has no
+  network code, and its one dependency is `golang.org/x/sys`, already in the
+  tree. The URL it holds is the verification page, never a token.
 - **`BurntSushi/toml` reaches only the bytes handed to `toml.Decode` and
   `toml.Marshal`.** It has no network code and no dependencies of its own. It
   gives a correct parser for a file people edit by hand, where a hand-rolled
